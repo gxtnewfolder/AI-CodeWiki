@@ -1,0 +1,54 @@
+# Compiled output
+/dist
+/tmp
+/out-tsc
+/bazel-out
+
+# Node
+/node_modules
+/frontend/node_modules
+/frontend/.angular
+/frontend/dist
+/frontend/tmp
+/frontend/out-tsc
+npm-debug.log
+yarn-error.log
+
+# Go
+backend/bin
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.log
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+backend/vendor/
+
+# IDEs and editors
+.idea/
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/mcp.json
+.history/*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environments
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

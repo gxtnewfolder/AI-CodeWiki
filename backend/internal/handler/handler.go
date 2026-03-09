@@ -1,0 +1,389 @@
+package handler
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/user/ai-codewiki-backend/internal/cache"
+	"github.com/user/ai-codewiki-backend/internal/config"
+	"github.com/user/ai-codewiki-backend/internal/hasher"
+	"github.com/user/ai-codewiki-backend/internal/llm"
+	"github.com/user/ai-codewiki-backend/internal/scanner"
+)
+
+type Handler struct {
+	db    *sql.DB
+	cfg   *config.Config
+	cache *cache.Cache
+}
+
+func New(db *sql.DB, cfg *config.Config) *Handler {
+	return &Handler{
+		db:    db,
+		cfg:   cfg,
+		cache: cache.New(db),
+	}
+}
+
+// --- Helpers ---
+
+func writeJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// --- Tree ---
+
+func (h *Handler) GetTree(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path query parameter is required")
+		return
+	}
+
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		writeError(w, http.StatusNotFound, "directory not found")
+		return
+	}
+
+	ignorePatterns := scanner.LoadIgnorePatterns(path)
+	tree, err := scanner.ScanDirectory(path, ignorePatterns)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to scan directory: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, tree)
+}
+
+// --- Summary ---
+
+type SummaryRequest struct {
+	ProjectPath string `json:"project_path"`
+	FilePath    string `json:"file_path"`
+}
+
+type SummaryResponse struct {
+	FilePath  string `json:"file_path"`
+	Summary   string `json:"summary"`
+	Provider  string `json:"provider"`
+	CacheHit  bool   `json:"cache_hit"`
+	Hash      string `json:"hash"`
+}
+
+func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
+	var req SummaryRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ProjectPath == "" || req.FilePath == "" {
+		writeError(w, http.StatusBadRequest, "project_path and file_path are required")
+		return
+	}
+
+	// Build full path
+	fullPath := filepath.Join(req.ProjectPath, req.FilePath)
+	if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+
+	// Compute hash
+	fileHash, err := hasher.HashFile(fullPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to hash file: "+err.Error())
+		return
+	}
+
+	// Check cache
+	if cached, hit := h.cache.Get(req.ProjectPath, req.FilePath, fileHash); hit {
+		// Record history
+		h.recordHistory(req.ProjectPath, req.FilePath)
+
+		writeJSON(w, http.StatusOK, SummaryResponse{
+			FilePath: req.FilePath,
+			Summary:  cached.SummaryMD,
+			Provider: cached.Provider,
+			CacheHit: true,
+			Hash:     fileHash,
+		})
+		return
+	}
+
+	// Read file content
+	content, err := os.ReadFile(fullPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read file: "+err.Error())
+		return
+	}
+
+	// Get LLM provider from settings
+	providerName := h.getSetting("llm_provider", "gemini")
+	apiKey := h.getSetting("llm_key_"+providerName, "")
+	if apiKey == "" {
+		writeError(w, http.StatusBadRequest, "no API key configured for provider: "+providerName)
+		return
+	}
+
+	provider := llm.NewProvider(providerName, apiKey)
+
+	// Call AI
+	summary, err := provider.Summarize(r.Context(), string(content), "")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "AI summarization failed: "+err.Error())
+		return
+	}
+
+	// Save to cache
+	h.cache.Set(req.ProjectPath, req.FilePath, fileHash, summary, providerName)
+
+	// Record history
+	h.recordHistory(req.ProjectPath, req.FilePath)
+
+	writeJSON(w, http.StatusOK, SummaryResponse{
+		FilePath: req.FilePath,
+		Summary:  summary,
+		Provider: providerName,
+		CacheHit: false,
+		Hash:     fileHash,
+	})
+}
+
+// --- Search ---
+
+func (h *Handler) SearchFiles(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	path := r.URL.Query().Get("path")
+
+	if query == "" || path == "" {
+		writeError(w, http.StatusBadRequest, "q and path query parameters are required")
+		return
+	}
+
+	ignorePatterns := scanner.LoadIgnorePatterns(path)
+	tree, err := scanner.ScanDirectory(path, ignorePatterns)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to scan: "+err.Error())
+		return
+	}
+
+	var results []scanner.FileNode
+	searchTree(tree.Children, strings.ToLower(query), &results)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"query":   query,
+		"results": results,
+		"count":   len(results),
+	})
+}
+
+func searchTree(nodes []scanner.FileNode, query string, results *[]scanner.FileNode) {
+	for _, n := range nodes {
+		if strings.Contains(strings.ToLower(n.Name), query) || strings.Contains(strings.ToLower(n.Path), query) {
+			if !n.IsDir {
+				*results = append(*results, n)
+			}
+		}
+		if n.IsDir && n.Children != nil {
+			searchTree(n.Children, query, results)
+		}
+	}
+}
+
+// --- Settings ---
+
+func (h *Handler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query("SELECT key, value FROM settings")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var k, v string
+		rows.Scan(&k, &v)
+		// Mask API keys
+		if strings.HasPrefix(k, "llm_key_") && len(v) > 8 {
+			settings[k] = v[:4] + "****" + v[len(v)-4:]
+		} else {
+			settings[k] = v
+		}
+	}
+
+	writeJSON(w, http.StatusOK, settings)
+}
+
+func (h *Handler) UpdateSettings(w http.ResponseWriter, r *http.Request) {
+	var body map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	for k, v := range body {
+		h.db.Exec(
+			`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)
+			 ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+			k, v, time.Now(),
+		)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- Bookmarks ---
+
+func (h *Handler) ListBookmarks(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query("SELECT id, project_path, file_path, display_name, created_at FROM bookmarks ORDER BY created_at DESC")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var bookmarks []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var pp, fp, dn string
+		var ca time.Time
+		rows.Scan(&id, &pp, &fp, &dn, &ca)
+		bookmarks = append(bookmarks, map[string]interface{}{
+			"id": id, "project_path": pp, "file_path": fp, "display_name": dn, "created_at": ca,
+		})
+	}
+
+	if bookmarks == nil {
+		bookmarks = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, bookmarks)
+}
+
+func (h *Handler) AddBookmark(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		ProjectPath string `json:"project_path"`
+		FilePath    string `json:"file_path"`
+		DisplayName string `json:"display_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if body.DisplayName == "" {
+		body.DisplayName = filepath.Base(body.FilePath)
+	}
+
+	result, err := h.db.Exec(
+		`INSERT OR IGNORE INTO bookmarks (project_path, file_path, display_name) VALUES (?, ?, ?)`,
+		body.ProjectPath, body.FilePath, body.DisplayName,
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	id, _ := result.LastInsertId()
+	writeJSON(w, http.StatusCreated, map[string]interface{}{"id": id, "status": "ok"})
+}
+
+func (h *Handler) RemoveBookmark(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid bookmark id")
+		return
+	}
+
+	h.db.Exec("DELETE FROM bookmarks WHERE id = ?", id)
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+// --- History ---
+
+func (h *Handler) ListHistory(w http.ResponseWriter, r *http.Request) {
+	rows, err := h.db.Query(
+		"SELECT id, project_path, file_path, viewed_at FROM history ORDER BY viewed_at DESC LIMIT 50",
+	)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer rows.Close()
+
+	var history []map[string]interface{}
+	for rows.Next() {
+		var id int64
+		var pp, fp string
+		var va time.Time
+		rows.Scan(&id, &pp, &fp, &va)
+		history = append(history, map[string]interface{}{
+			"id": id, "project_path": pp, "file_path": fp, "viewed_at": va,
+		})
+	}
+
+	if history == nil {
+		history = []map[string]interface{}{}
+	}
+	writeJSON(w, http.StatusOK, history)
+}
+
+// --- LLM Validation ---
+
+func (h *Handler) ValidateLLMKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Provider string `json:"provider"`
+		APIKey   string `json:"api_key"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	provider := llm.NewProvider(body.Provider, body.APIKey)
+	if err := provider.ValidateKey(r.Context(), body.APIKey); err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"valid":   false,
+			"message": err.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"valid":   true,
+		"message": "API key is valid",
+	})
+}
+
+// --- Internal Helpers ---
+
+func (h *Handler) getSetting(key, fallback string) string {
+	var value string
+	err := h.db.QueryRow("SELECT value FROM settings WHERE key = ?", key).Scan(&value)
+	if err != nil || value == "" {
+		return fallback
+	}
+	return value
+}
+
+func (h *Handler) recordHistory(projectPath, filePath string) {
+	h.db.Exec(
+		"INSERT INTO history (project_path, file_path, viewed_at) VALUES (?, ?, ?)",
+		projectPath, filePath, time.Now(),
+	)
+}

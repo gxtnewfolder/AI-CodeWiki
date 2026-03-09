@@ -1,0 +1,185 @@
+<!-- Top Bar -->
+<header class="topbar">
+  <div class="topbar-left">
+    <ng-icon hlmIcon name="lucideZap" size="sm" class="text-primary" />
+    <span class="logo">CodeWiki</span>
+  </div>
+
+  <div class="topbar-center">
+    @if (!projectPath()) {
+      <div class="project-input-wrapper">
+        <input
+          type="text"
+          hlmInput
+          class="flex-1 font-mono text-xs"
+          placeholder="Enter project path to scan…"
+          #pathInput
+          (keydown.enter)="openProject(pathInput.value)"
+        />
+        <button hlmBtn size="sm" (click)="openProject(pathInput.value)">
+          Open
+        </button>
+      </div>
+    } @else {
+      <div class="project-badge" (click)="showSettings.set(false)">
+        <ng-icon hlmIcon name="lucideFolder" size="xs" />
+        <span class="project-badge-path">{{ projectPath() }}</span>
+      </div>
+    }
+  </div>
+
+  <div class="topbar-right">
+    <button hlmBtn variant="ghost" size="icon" (click)="toggleTheme()" [title]="isDark() ? 'Light mode' : 'Dark mode'">
+      <ng-icon hlmIcon [name]="isDark() ? 'lucideSun' : 'lucideMoon'" size="sm" />
+    </button>
+    <button hlmBtn variant="ghost" size="icon" (click)="showSettings.set(!showSettings())" title="Settings">
+      <ng-icon hlmIcon name="lucideSettings" size="sm" />
+    </button>
+  </div>
+</header>
+
+<!-- Main Layout -->
+<div class="main-layout">
+  <!-- Sidebar -->
+  @if (projectPath() && !showSettings()) {
+    <aside class="sidebar" [style.width.px]="sidebarWidth()">
+      <!-- Sidebar Tabs -->
+      <nav class="sidebar-tabs">
+        <button
+          class="sidebar-tab"
+          [class.active]="activeTab() === 'tree'"
+          (click)="switchTab('tree')"
+          title="File Tree"
+        >
+          <ng-icon hlmIcon name="lucideFolder" size="sm" />
+        </button>
+        <button
+          class="sidebar-tab"
+          [class.active]="activeTab() === 'search'"
+          (click)="switchTab('search')"
+          title="Search"
+        >
+          <ng-icon hlmIcon name="lucideSearch" size="sm" />
+        </button>
+        <button
+          class="sidebar-tab"
+          [class.active]="activeTab() === 'bookmarks'"
+          (click)="switchTab('bookmarks')"
+          title="Bookmarks"
+        >
+          <ng-icon hlmIcon name="lucideStar" size="sm" />
+        </button>
+        <button
+          class="sidebar-tab"
+          [class.active]="activeTab() === 'history'"
+          (click)="switchTab('history')"
+          title="History"
+        >
+          <ng-icon hlmIcon name="lucideClock" size="sm" />
+        </button>
+      </nav>
+
+      <!-- Sidebar Content -->
+      <div class="sidebar-content">
+        @switch (activeTab()) {
+          @case ('tree') {
+            @if (tree()) {
+              <app-file-tree
+                [node]="tree()!"
+                [selectedFile]="selectedFile()"
+                (fileSelect)="selectFile($event)"
+              />
+            }
+          }
+          @case ('search') {
+            <app-search-panel
+              [projectPath]="projectPath()"
+              (fileSelect)="selectFile($event)"
+            />
+          }
+          @case ('bookmarks') {
+            <div class="sidebar-list">
+              <div class="sidebar-section-label">BOOKMARKS</div>
+              @for (b of bookmarks(); track b.id) {
+                <button class="sidebar-item" (click)="selectFile(b.file_path)">
+                  <ng-icon hlmIcon name="lucideStar" size="xs" class="text-amber-400" />
+                  <span class="sidebar-item-text">{{ b.display_name }}</span>
+                </button>
+              } @empty {
+                <div class="sidebar-empty">No bookmarks yet</div>
+              }
+            </div>
+          }
+          @case ('history') {
+            <div class="sidebar-list">
+              <div class="sidebar-section-label">RECENT FILES</div>
+              @for (h of history(); track h.id) {
+                <button class="sidebar-item" (click)="selectFile(h.file_path)">
+                  <ng-icon hlmIcon name="lucideFile" size="xs" class="text-muted-foreground" />
+                  <span class="sidebar-item-text">{{ h.file_path }}</span>
+                </button>
+              } @empty {
+                <div class="sidebar-empty">No history yet</div>
+              }
+            </div>
+          }
+        }
+      </div>
+    </aside>
+
+    <!-- Resize Handle -->
+    <div class="resize-handle" (mousedown)="onResizeSidebar($event)"></div>
+  }
+
+  <!-- Main Panel -->
+  <main class="main-panel">
+    @if (showSettings()) {
+      <app-settings />
+    } @else if (!projectPath()) {
+      <!-- Welcome Screen -->
+      <div class="welcome">
+        <ng-icon hlmIcon name="lucideZap" size="xl" class="text-primary" />
+        <h1 class="welcome-title">AI-CodeWiki</h1>
+        <p class="welcome-desc text-muted-foreground">Understand any codebase in minutes with AI-powered summaries</p>
+        <div class="welcome-hint text-muted-foreground/60">Enter a project path above to get started</div>
+      </div>
+    } @else if (!selectedFile()) {
+      <div class="empty-state">
+        <ng-icon hlmIcon name="lucideFolderOpen" size="xl" class="text-muted-foreground" />
+        <h2 class="empty-state-title">Select a file</h2>
+        <p class="empty-state-desc text-muted-foreground">Choose a file from the sidebar to see its AI-powered summary</p>
+      </div>
+    } @else {
+      <app-summary-viewer
+        [filePath]="selectedFile()!"
+        [summary]="summary()"
+        [loading]="loading()"
+        [error]="error()"
+        [isBookmarked]="isBookmarked()"
+        (toggleBookmark)="toggleBookmark()"
+        (regenerate)="selectFile(selectedFile()!)"
+      />
+    }
+  </main>
+</div>
+
+<!-- Status Bar -->
+<footer class="statusbar">
+  <div class="statusbar-left">
+    @if (summary()) {
+      <span class="status-badge">
+        {{ summary()!.provider | uppercase }}
+      </span>
+      <span class="status-info">
+        {{ summary()!.cache_hit ? '⚡ Cached' : '🤖 Fresh AI' }}
+      </span>
+    }
+  </div>
+  <div class="statusbar-right">
+    @if (projectPath()) {
+      <span class="status-info">{{ projectPath() }}</span>
+    }
+  </div>
+</footer>
+
+<router-outlet />

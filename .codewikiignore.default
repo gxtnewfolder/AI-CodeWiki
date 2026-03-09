@@ -1,0 +1,46 @@
+# AI-CodeWiki Ignore File
+# Syntax: one pattern per line, similar to .gitignore
+# Lines starting with # are comments
+
+# Version control
+.git/
+.svn/
+.hg/
+
+# Dependencies
+node_modules/
+vendor/
+.venv/
+__pycache__/
+
+# Build outputs
+dist/
+build/
+.next/
+.nuxt/
+out/
+target/
+bin/
+obj/
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.rar
