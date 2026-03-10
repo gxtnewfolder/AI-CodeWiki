@@ -31,34 +31,22 @@ AI-CodeWiki consists of three main components:
 - **Ollama** (with `qwen2.5-coder:7b` model)
 - **Neo4j** (Optional, for graph analysis)
 
-### Installation
+### Running with Docker (Recommended)
 
-1.  **Clone the repository**:
-    ```bash
-    git clone https://github.com/user/AI-CodeWiki.git
-    cd AI-CodeWiki
-    ```
+The easiest way to run the entire stack (including Neo4j) is using Docker Compose:
 
-2.  **Setup the Backend (Go)**:
-    ```bash
-    cd backend
-    go mod tidy
-    go run ./cmd/server
-    ```
+```bash
+docker-compose up --build
+```
 
-3.  **Setup the AI Service (Python)**:
-    ```bash
-    cd ai-service
-    pip install -r requirements.txt
-    python main.py
-    ```
+- **Frontend**: `http://localhost`
+- **Backend API**: `http://localhost:8080`
+- **Neo4j Dashboard**: `http://localhost:7474` (user: `neo4j`, pass: `password`)
 
-4.  **Setup the Frontend (Angular)**:
-    ```bash
-    cd frontend
-    npm install
-    npm start
-    ```
+> [!TIP]
+> This setup connects to your **host's local Ollama** by default using `host.docker.internal`. Make sure Ollama is running on your machine.
+
+### Manual Installation
 
 ## 🛠️ Configuration
 
