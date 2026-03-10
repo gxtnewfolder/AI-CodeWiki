@@ -44,3 +44,72 @@ export interface LLMValidation {
   valid: boolean;
   message: string;
 }
+
+// --- Browse ---
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  has_children: boolean;
+}
+
+export interface BrowseResult {
+  current_path: string;
+  parent: string;
+  separator: string;
+  dirs: DirEntry[];
+}
+
+// --- Dependencies ---
+
+export interface DepLink {
+  file_path: string;
+  symbol: string;
+  line: number;
+}
+
+export interface DepsResult {
+  file_path: string;
+  language: string;
+  imports: DepLink[];
+  imported_by: DepLink[];
+  exports: string[];
+}
+
+// --- AI Features ---
+
+export interface QARequest {
+  project_path: string;
+  question: string;
+  max_context_files?: number;
+}
+
+export interface QAResponse {
+  answer_md: string;
+  used_files?: { file_path: string; content_excerpt: string }[];
+}
+
+export interface ImpactAnalysisRequest {
+  project_path: string;
+  file_path: string;
+  question?: string;
+}
+
+export interface ImpactNode {
+  id: string;
+  label: string;
+  file_path?: string;
+}
+
+export interface ImpactEdge {
+  source: string;
+  target: string;
+  relation: string;
+}
+
+export interface ImpactAnalysisResponse {
+  analysis_md: string;
+  nodes: ImpactNode[];
+  edges: ImpactEdge[];
+}
+

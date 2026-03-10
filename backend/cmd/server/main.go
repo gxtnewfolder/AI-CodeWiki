@@ -75,6 +75,20 @@ func main() {
 
 		// LLM
 		r.Post("/llm/validate", h.ValidateLLMKey)
+
+		// Browse directories
+		r.Get("/browse", h.BrowseDirs)
+		r.Get("/browse/roots", h.GetRoots)
+
+		// Dependencies
+		r.Post("/deps", h.GetDeps)
+
+		// Indexing
+		r.Post("/index", h.IndexProject)
+
+		// AI Features
+		r.Post("/qa", h.CodeQA)
+		r.Post("/impact-analysis", h.AnalyzeImpact)
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)

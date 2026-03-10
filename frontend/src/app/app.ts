@@ -3,11 +3,13 @@ import { UpperCasePipe } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { ThemeService } from './services/theme.service';
 import { ApiService } from './services/api.service';
-import { FileNode, SummaryResponse, Bookmark, HistoryEntry } from './models/api.models';
+import { FileNode, SummaryResponse, Bookmark, HistoryEntry, DepsResult } from './models/api.models';
 import { FileTreeComponent } from './components/file-tree/file-tree.component';
 import { SummaryViewerComponent } from './components/summary-viewer/summary-viewer.component';
 import { SearchPanelComponent } from './components/search-panel/search-panel.component';
 import { SettingsComponent } from './components/settings/settings.component';
+import { FolderPickerComponent } from './components/folder-picker/folder-picker.component';
+import { QAViewerComponent } from './components/qa-viewer/qa-viewer.component';
 
 // spartan-ng helm
 import { HlmButtonImports } from '@spartan-ng/helm/button';
@@ -31,6 +33,8 @@ type SidebarTab = 'tree' | 'search' | 'bookmarks' | 'history';
     SummaryViewerComponent,
     SearchPanelComponent,
     SettingsComponent,
+    FolderPickerComponent,
+    QAViewerComponent,
     ...HlmButtonImports,
     ...HlmIconImports,
     ...HlmCardImports,
@@ -54,16 +58,22 @@ export class App implements OnInit {
   readonly isDark = this.themeService.isDark;
   readonly activeTab = signal<SidebarTab>('tree');
   readonly showSettings = signal(false);
+  readonly showFolderPicker = signal(false);
 
   readonly projectPath = signal('');
   readonly tree = signal<FileNode | null>(null);
   readonly selectedFile = signal<string | null>(null);
   readonly summary = signal<SummaryResponse | null>(null);
+  readonly deps = signal<DepsResult | null>(null);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly bookmarks = signal<Bookmark[]>([]);
   readonly history = signal<HistoryEntry[]>([]);
   readonly sidebarWidth = signal(280);
+
+  // QA View State
+  readonly viewMode = signal<'summary' | 'qa'>('summary');
+  readonly currentQA = signal<{ question: string, response: any } | null>(null);
 
   ngOnInit() {
     const lastProject = localStorage.getItem('codewiki-project');
@@ -74,9 +84,30 @@ export class App implements OnInit {
   }
 
   openProject(path: string) {
+    if (!path.trim()) return;
     this.projectPath.set(path);
     localStorage.setItem('codewiki-project', path);
+    this.showFolderPicker.set(false);
     this.loadTree(path);
+  }
+
+  openFolderPicker() {
+    // Try native directory picker first (Chrome/Edge)
+    if ('showDirectoryPicker' in window) {
+      (window as any).showDirectoryPicker({ mode: 'read' })
+        .then((handle: any) => {
+          // Native picker gives us a handle — we need to prompt user for the actual path
+          // since the File System Access API doesn't expose absolute paths.
+          // Fallback: open our custom picker pre-filled with directory name
+          this.showFolderPicker.set(true);
+        })
+        .catch(() => {
+          // User cancelled or API not supported
+          this.showFolderPicker.set(true);
+        });
+    } else {
+      this.showFolderPicker.set(true);
+    }
   }
 
   loadTree(path: string) {
@@ -89,10 +120,13 @@ export class App implements OnInit {
   }
 
   selectFile(filePath: string) {
+    this.viewMode.set('summary');
     this.selectedFile.set(filePath);
     this.loading.set(true);
     this.error.set(null);
+    this.deps.set(null);
 
+    // Fire both summary + deps in parallel
     this.api
       .getSummary({
         project_path: this.projectPath(),
@@ -108,6 +142,17 @@ export class App implements OnInit {
           this.loading.set(false);
         },
       });
+
+    // Deps analysis (parallel, non-blocking)
+    this.api.getDeps(this.projectPath(), filePath).subscribe({
+      next: (res) => this.deps.set(res),
+      error: () => this.deps.set(null), // silently fail
+    });
+  }
+
+  showQA(data: { question: string, response: any }) {
+    this.currentQA.set(data);
+    this.viewMode.set('qa');
   }
 
   toggleTheme() {

@@ -9,6 +9,13 @@ import {
   Bookmark,
   HistoryEntry,
   LLMValidation,
+  BrowseResult,
+  DirEntry,
+  DepsResult,
+  QARequest,
+  QAResponse,
+  ImpactAnalysisRequest,
+  ImpactAnalysisResponse,
 } from '../models/api.models';
 
 @Injectable({ providedIn: 'root' })
@@ -70,6 +77,40 @@ export class ApiService {
     return this.http.post<LLMValidation>(`${this.baseUrl}/llm/validate`, {
       provider,
       api_key: apiKey,
+    });
+  }
+
+  // --- Browse ---
+  browseDirs(path: string): Observable<BrowseResult> {
+    return this.http.get<BrowseResult>(`${this.baseUrl}/browse`, {
+      params: { path },
+    });
+  }
+
+  getRoots(): Observable<DirEntry[]> {
+    return this.http.get<DirEntry[]>(`${this.baseUrl}/browse/roots`);
+  }
+
+  // --- Dependencies ---
+  getDeps(projectPath: string, filePath: string): Observable<DepsResult> {
+    return this.http.post<DepsResult>(`${this.baseUrl}/deps`, {
+      project_path: projectPath,
+      file_path: filePath,
+    });
+  }
+
+  // --- AI Features ---
+  codeQA(req: QARequest): Observable<QAResponse> {
+    return this.http.post<QAResponse>(`${this.baseUrl}/qa`, req);
+  }
+
+  analyzeImpact(req: ImpactAnalysisRequest): Observable<ImpactAnalysisResponse> {
+    return this.http.post<ImpactAnalysisResponse>(`${this.baseUrl}/impact-analysis`, req);
+  }
+
+  triggerIndex(projectPath: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(`${this.baseUrl}/index`, {
+      project_path: projectPath,
     });
   }
 }

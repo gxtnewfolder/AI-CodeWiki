@@ -1,17 +1,33 @@
-import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
 import { MarkdownComponent } from 'ngx-markdown';
-import { SummaryResponse } from '../../models/api.models';
+import { SummaryResponse, DepsResult } from '../../models/api.models';
+import { DepGraphComponent } from '../dep-graph/dep-graph.component';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideFile, lucideStar, lucideRefreshCw, lucideChevronLeft, lucideChevronRight, lucideAlertTriangle, lucideZap } from '@ng-icons/lucide';
+import { ApiService } from '../../services/api.service';
+import { inject } from '@angular/core';
 
 @Component({
   selector: 'app-summary-viewer',
   standalone: true,
-  imports: [MarkdownComponent],
+  imports: [MarkdownComponent, DepGraphComponent, NgIcon],
+  providers: [
+    provideIcons({
+      lucideFile,
+      lucideStar,
+      lucideRefreshCw,
+      lucideChevronLeft,
+      lucideChevronRight,
+      lucideAlertTriangle,
+      lucideZap,
+    }),
+  ],
   template: `
     <div class="viewer">
       <!-- Header -->
       <div class="viewer-header">
         <div class="viewer-path">
-          <span class="viewer-path-icon">📄</span>
+          <ng-icon name="lucideFile" size="14" class="text-muted-foreground mr-1" />
           <span class="viewer-path-text">{{ filePath }}</span>
         </div>
         <div class="viewer-actions">
@@ -20,43 +36,73 @@ import { SummaryResponse } from '../../models/api.models';
             (click)="toggleBookmark.emit()"
             [title]="isBookmarked ? 'Remove Bookmark' : 'Add Bookmark'"
           >
-            {{ isBookmarked ? '⭐' : '☆' }}
+            <ng-icon
+              [name]="'lucideStar'"
+              [class.text-amber-400]="isBookmarked"
+              [class.fill-amber-400]="isBookmarked"
+              size="16"
+            />
           </button>
           <button class="btn btn-ghost btn-sm" (click)="regenerate.emit()" title="Regenerate">
-            🔄
+            <ng-icon name="lucideRefreshCw" size="14" />
+          </button>
+          <button
+            class="btn btn-ghost btn-sm"
+            (click)="showDeps.set(!showDeps())"
+            [title]="showDeps() ? 'Hide Dependencies' : 'Show Dependencies'"
+          >
+            <ng-icon [name]="showDeps() ? 'lucideChevronRight' : 'lucideChevronLeft'" size="14" />
+            <span class="ml-1">{{ showDeps() ? 'Hide' : 'Deps' }}</span>
           </button>
         </div>
       </div>
 
-      <!-- Content -->
-      <div class="viewer-content">
-        @if (loading) {
-          <!-- Skeleton Loading -->
-          <div class="skeleton">
-            <div class="skeleton-line w-40"></div>
-            <div class="skeleton-line w-80"></div>
-            <div class="skeleton-line w-60"></div>
-            <div class="skeleton-spacer"></div>
-            <div class="skeleton-line w-30"></div>
-            <div class="skeleton-line w-70"></div>
-            <div class="skeleton-line w-50"></div>
-            <div class="skeleton-line w-90"></div>
-            <div class="skeleton-spacer"></div>
-            <div class="skeleton-line w-35"></div>
-            <div class="skeleton-line w-65"></div>
-          </div>
-        } @else if (error) {
-          <div class="error-card">
-            <div class="error-icon">⚠️</div>
-            <div class="error-title">Error</div>
-            <div class="error-message">{{ error }}</div>
-            <button class="btn btn-primary btn-sm" (click)="regenerate.emit()">
-              Retry
-            </button>
-          </div>
-        } @else if (summary) {
-          <div class="markdown-body">
-            <markdown [data]="summary.summary" />
+      <!-- Split Content -->
+      <div class="viewer-split" [class.split-active]="showDeps()">
+        <!-- Left: Markdown Summary -->
+        <div class="viewer-content">
+          @if (loading) {
+            <!-- Skeleton Loading -->
+            <div class="skeleton">
+              <div class="skeleton-line w-40"></div>
+              <div class="skeleton-line w-80"></div>
+              <div class="skeleton-line w-60"></div>
+              <div class="skeleton-spacer"></div>
+              <div class="skeleton-line w-30"></div>
+              <div class="skeleton-line w-70"></div>
+              <div class="skeleton-line w-50"></div>
+              <div class="skeleton-line w-90"></div>
+              <div class="skeleton-spacer"></div>
+              <div class="skeleton-line w-35"></div>
+              <div class="skeleton-line w-65"></div>
+            </div>
+          } @else if (error) {
+            <div class="error-card">
+              <ng-icon name="lucideAlertTriangle" size="32" class="text-danger mb-2" />
+              <div class="error-title">Error</div>
+              <div class="error-message">{{ error }}</div>
+              <button class="btn btn-primary btn-sm" (click)="regenerate.emit()">
+                Retry
+              </button>
+            </div>
+          } @else if (summary) {
+            <div class="markdown-body">
+              <markdown [data]="summary.summary" />
+            </div>
+          }
+        </div>
+
+        <!-- Right: Dependency Graph -->
+        @if (showDeps()) {
+          <div class="viewer-deps-divider" (mousedown)="onResizeDeps($event)"></div>
+          <div class="viewer-deps" [style.width.px]="depsWidth()">
+            <app-dep-graph
+              [deps]="deps"
+              [currentFile]="filePath"
+              [impactAnalysis]="impactAnalysis()"
+              (fileSelect)="fileSelect.emit($event)"
+              (analyzeImpact)="onAnalyzeImpact()"
+            />
           </div>
         }
       </div>
@@ -108,13 +154,37 @@ import { SummaryResponse } from '../../models/api.models';
       flex-shrink: 0;
     }
 
+    /* ─── Split Layout ─── */
+    .viewer-split {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+
     .viewer-content {
       flex: 1;
       overflow-y: auto;
-      padding: var(--space-8) var(--space-12);
+      padding: var(--space-8) var(--space-10);
       display: flex;
       flex-direction: column;
       align-items: center;
+      min-width: 0;
+    }
+
+    .viewer-deps-divider {
+      width: 4px;
+      cursor: col-resize;
+      background: transparent;
+      flex-shrink: 0;
+      transition: background 120ms;
+    }
+    .viewer-deps-divider:hover { background: var(--primary); }
+
+    .viewer-deps {
+      flex-shrink: 0;
+      border-left: 1px solid var(--border);
+      overflow: hidden;
+      background: var(--surface-1);
     }
 
     /* ─── Markdown (ngx-markdown) ─── */
@@ -224,7 +294,9 @@ import { SummaryResponse } from '../../models/api.models';
       display: flex;
       flex-direction: column;
       gap: var(--space-3);
-      max-width: 500px;
+      width: 100%;
+      max-width: 900px;
+      padding: var(--space-2) 0;
     }
 
     .skeleton-line {
@@ -282,9 +354,60 @@ import { SummaryResponse } from '../../models/api.models';
 export class SummaryViewerComponent {
   @Input() filePath!: string;
   @Input() summary: SummaryResponse | null = null;
+  @Input() deps: DepsResult | null = null;
   @Input() loading = false;
   @Input() error: string | null = null;
   @Input() isBookmarked = false;
   @Output() toggleBookmark = new EventEmitter<void>();
   @Output() regenerate = new EventEmitter<void>();
+  @Output() fileSelect = new EventEmitter<string>();
+
+  @Input() projectPath = '';
+  
+  private api = inject(ApiService);
+  readonly impactAnalysis = signal<any>(null);
+  readonly analyzingImpact = signal(false);
+
+  onAnalyzeImpact() {
+    if (!this.projectPath || !this.filePath) return;
+    
+    this.analyzingImpact.set(true);
+    this.api.analyzeImpact({
+      project_path: this.projectPath,
+      file_path: this.filePath
+    }).subscribe({
+      next: (res) => {
+        this.impactAnalysis.set(res);
+        this.analyzingImpact.set(false);
+      },
+      error: () => {
+        this.analyzingImpact.set(false);
+      }
+    });
+  }
+
+  // Reset impact when file changes
+  ngOnChanges() {
+    this.impactAnalysis.set(null);
+  }
+
+  readonly showDeps = signal(true);
+  readonly depsWidth = signal(360);
+
+  onResizeDeps(event: MouseEvent) {
+    const startX = event.clientX;
+    const startWidth = this.depsWidth();
+
+    const onMove = (e: MouseEvent) => {
+      // Moving left = larger width (panel is on right)
+      const newWidth = Math.min(600, Math.max(240, startWidth - (e.clientX - startX)));
+      this.depsWidth.set(newWidth);
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
 }

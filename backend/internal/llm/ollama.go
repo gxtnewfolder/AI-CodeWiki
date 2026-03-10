@@ -28,7 +28,8 @@ func (o *OllamaProvider) Summarize(ctx context.Context, code string, prompt stri
 	}
 
 	body := map[string]interface{}{
-		"model": "llama3.2",
+		// ใช้ qwen2.5-coder:7b เป็นค่าเริ่มต้น ตาม docs/spec-llm.md
+		"model": "qwen2.5-coder:7b",
 		"messages": []map[string]string{
 			{"role": "system", "content": prompt},
 			{"role": "user", "content": code},

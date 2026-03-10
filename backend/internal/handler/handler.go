@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/user/ai-codewiki-backend/internal/cache"
 	"github.com/user/ai-codewiki-backend/internal/config"
+	"github.com/user/ai-codewiki-backend/internal/deps"
 	"github.com/user/ai-codewiki-backend/internal/hasher"
 	"github.com/user/ai-codewiki-backend/internal/llm"
 	"github.com/user/ai-codewiki-backend/internal/scanner"
@@ -65,6 +68,12 @@ func (h *Handler) GetTree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Automated Indexing Trigger (Async)
+	// If we are at the root (no subpath relative to project), trigger indexing
+	go func(p string) {
+		h.callAIIndex(p)
+	}(path)
+
 	writeJSON(w, http.StatusOK, tree)
 }
 
@@ -81,6 +90,18 @@ type SummaryResponse struct {
 	Provider  string `json:"provider"`
 	CacheHit  bool   `json:"cache_hit"`
 	Hash      string `json:"hash"`
+}
+
+type aiServiceSummaryRequest struct {
+	ProjectPath string `json:"project_path"`
+	FilePath    string `json:"file_path"`
+	FileContent string `json:"file_content"`
+}
+
+type aiServiceSummaryResponse struct {
+	ProjectPath string `json:"project_path"`
+	FilePath    string `json:"file_path"`
+	SummaryMD   string `json:"summary_md"`
 }
 
 func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
@@ -131,21 +152,33 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get LLM provider from settings
+	// Decide which backend to use:
+	// - ถ้า llm_provider == "ollama" → ส่งไป Python ai-service (Local LLM ผ่าน Ollama)
+	// - ถ้าอย่างอื่น → ใช้ llm provider เดิม (gemini/openai/claude ฯลฯ)
 	providerName := h.getSetting("llm_provider", "gemini")
-	apiKey := h.getSetting("llm_key_"+providerName, "")
-	if apiKey == "" {
-		writeError(w, http.StatusBadRequest, "no API key configured for provider: "+providerName)
-		return
-	}
 
-	provider := llm.NewProvider(providerName, apiKey)
+	var summary string
 
-	// Call AI
-	summary, err := provider.Summarize(r.Context(), string(content), "")
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "AI summarization failed: "+err.Error())
-		return
+	if providerName == "ollama" {
+		summary, err = h.callAISummary(req.ProjectPath, req.FilePath, string(content))
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "AI summarization failed: "+err.Error())
+			return
+		}
+	} else {
+		apiKey := h.getSetting("llm_key_"+providerName, "")
+		if apiKey == "" {
+			writeError(w, http.StatusBadRequest, "no API key configured for provider: "+providerName)
+			return
+		}
+
+		provider := llm.NewProvider(providerName, apiKey)
+
+		summary, err = provider.Summarize(r.Context(), string(content), "")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "AI summarization failed: "+err.Error())
+			return
+		}
 	}
 
 	// Save to cache
@@ -161,6 +194,47 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 		CacheHit: false,
 		Hash:     fileHash,
 	})
+}
+
+// callAISummary forwards the summarization request to the Python AI microservice.
+func (h *Handler) callAISummary(projectPath, filePath, content string) (string, error) {
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	if baseURL == "" {
+		return "", fmt.Errorf("AI_SERVICE_URL is not configured")
+	}
+
+	payload := aiServiceSummaryRequest{
+		ProjectPath: projectPath,
+		FilePath:    filePath,
+		FileContent: content,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal ai-service request: %w", err)
+	}
+
+	url := baseURL + "/api/v1/summarize-file"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("call ai-service: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("ai-service returned status %d", resp.StatusCode)
+	}
+
+	var aiResp aiServiceSummaryResponse
+	if err := json.NewDecoder(resp.Body).Decode(&aiResp); err != nil {
+		return "", fmt.Errorf("decode ai-service response: %w", err)
+	}
+
+	if aiResp.SummaryMD == "" {
+		return "", fmt.Errorf("ai-service returned empty summary")
+	}
+
+	return aiResp.SummaryMD, nil
 }
 
 // --- Search ---
@@ -386,4 +460,152 @@ func (h *Handler) recordHistory(projectPath, filePath string) {
 		"INSERT INTO history (project_path, file_path, viewed_at) VALUES (?, ?, ?)",
 		projectPath, filePath, time.Now(),
 	)
+}
+
+// --- Dependencies ---
+
+func (h *Handler) GetDeps(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectPath string `json:"project_path"`
+		FilePath    string `json:"file_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ProjectPath == "" || req.FilePath == "" {
+		writeError(w, http.StatusBadRequest, "project_path and file_path are required")
+		return
+	}
+
+	// Forward analysis: what does this file import?
+	result := deps.AnalyzeFile(req.ProjectPath, req.FilePath)
+
+	// Reverse analysis: who imports this file? (grep-like)
+	result.ImportedBy = deps.FindReverseDeps(req.ProjectPath, req.FilePath)
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+// --- AI Features ---
+
+func (h *Handler) CodeQA(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectPath     string `json:"project_path"`
+		Question        string `json:"question"`
+		MaxContextFiles int    `json:"max_context_files"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.MaxContextFiles <= 0 {
+		req.MaxContextFiles = 5
+	}
+
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	body, _ := json.Marshal(req)
+	url := baseURL + "/api/v1/project-qa"
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ai-service connection failed: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, resp.StatusCode, "ai-service error")
+		return
+	}
+
+	var aiResp interface{}
+	json.NewDecoder(resp.Body).Decode(&aiResp)
+	writeJSON(w, http.StatusOK, aiResp)
+}
+
+func (h *Handler) AnalyzeImpact(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectPath string `json:"project_path"`
+		FilePath    string `json:"file_path"`
+		Question    string `json:"question"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	body, _ := json.Marshal(req)
+	url := baseURL + "/api/v1/impact"
+
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ai-service connection failed: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, resp.StatusCode, "ai-service error")
+		return
+	}
+
+	var aiResp interface{}
+	json.NewDecoder(resp.Body).Decode(&aiResp)
+	writeJSON(w, http.StatusOK, aiResp)
+}
+
+func (h *Handler) IndexProject(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		ProjectPath string `json:"project_path"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "project_path is required")
+		return
+	}
+
+	err := h.callAIIndex(req.ProjectPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to trigger indexing: "+err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "message": "indexing triggered"})
+}
+
+func (h *Handler) callAIIndex(projectPath string) error {
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	if baseURL == "" {
+		return fmt.Errorf("AI_SERVICE_URL is not configured")
+	}
+
+	payload := map[string]string{
+		"project_path": projectPath,
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	url := baseURL + "/api/v1/index-codebase"
+	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("ai-service returned status %d", resp.StatusCode)
+	}
+
+	return nil
 }

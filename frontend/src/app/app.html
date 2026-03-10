@@ -7,23 +7,17 @@
 
   <div class="topbar-center">
     @if (!projectPath()) {
-      <div class="project-input-wrapper">
-        <input
-          type="text"
-          hlmInput
-          class="flex-1 font-mono text-xs"
-          placeholder="Enter project path to scan…"
-          #pathInput
-          (keydown.enter)="openProject(pathInput.value)"
-        />
-        <button hlmBtn size="sm" (click)="openProject(pathInput.value)">
-          Open
-        </button>
-      </div>
+      <button hlmBtn variant="outline" size="sm" (click)="openFolderPicker()">
+        <ng-icon hlmIcon name="lucideFolderOpen" size="sm" />
+        Open Project
+      </button>
     } @else {
       <div class="project-badge" (click)="showSettings.set(false)">
         <ng-icon hlmIcon name="lucideFolder" size="xs" />
         <span class="project-badge-path">{{ projectPath() }}</span>
+        <button class="project-change" (click)="openFolderPicker(); $event.stopPropagation()" title="Change project">
+          <ng-icon hlmIcon name="lucideRefreshCw" size="xs" />
+        </button>
       </div>
     }
   </div>
@@ -95,6 +89,7 @@
             <app-search-panel
               [projectPath]="projectPath()"
               (fileSelect)="selectFile($event)"
+              (qaResult)="showQA($event)"
             />
           }
           @case ('bookmarks') {
@@ -141,24 +136,44 @@
         <ng-icon hlmIcon name="lucideZap" size="xl" class="text-primary" />
         <h1 class="welcome-title">AI-CodeWiki</h1>
         <p class="welcome-desc text-muted-foreground">Understand any codebase in minutes with AI-powered summaries</p>
-        <div class="welcome-hint text-muted-foreground/60">Enter a project path above to get started</div>
-      </div>
-    } @else if (!selectedFile()) {
-      <div class="empty-state">
-        <ng-icon hlmIcon name="lucideFolderOpen" size="xl" class="text-muted-foreground" />
-        <h2 class="empty-state-title">Select a file</h2>
-        <p class="empty-state-desc text-muted-foreground">Choose a file from the sidebar to see its AI-powered summary</p>
+        <button hlmBtn size="lg" (click)="openFolderPicker()">
+          <ng-icon hlmIcon name="lucideFolderOpen" size="sm" />
+          Open Project
+        </button>
       </div>
     } @else {
-      <app-summary-viewer
-        [filePath]="selectedFile()!"
-        [summary]="summary()"
-        [loading]="loading()"
-        [error]="error()"
-        [isBookmarked]="isBookmarked()"
-        (toggleBookmark)="toggleBookmark()"
-        (regenerate)="selectFile(selectedFile()!)"
-      />
+      @switch (viewMode()) {
+        @case ('summary') {
+          @if (!selectedFile()) {
+            <div class="empty-state">
+              <ng-icon hlmIcon name="lucideFolderOpen" size="xl" class="text-muted-foreground" />
+              <h2 class="empty-state-title">Select a file</h2>
+              <p class="empty-state-desc text-muted-foreground">Choose a file from the sidebar to see its AI-powered summary</p>
+            </div>
+          } @else {
+            <app-summary-viewer
+              [projectPath]="projectPath()"
+              [filePath]="selectedFile()!"
+              [summary]="summary()"
+              [deps]="deps()"
+              [loading]="loading()"
+              [error]="error()"
+              [isBookmarked]="isBookmarked()"
+              (toggleBookmark)="toggleBookmark()"
+              (regenerate)="selectFile(selectedFile()!)"
+              (fileSelect)="selectFile($event)"
+            />
+          }
+        }
+        @case ('qa') {
+          <app-qa-viewer
+            [question]="currentQA()?.question || ''"
+            [response]="currentQA()?.response"
+            (fileSelect)="selectFile($event)"
+            (goBack)="viewMode.set('summary')"
+          />
+        }
+      }
     }
   </main>
 </div>
@@ -181,5 +196,13 @@
     }
   </div>
 </footer>
+
+<!-- Folder Picker Dialog -->
+@if (showFolderPicker()) {
+  <app-folder-picker
+    (folderSelected)="openProject($event)"
+    (closed)="showFolderPicker.set(false)"
+  />
+}
 
 <router-outlet />

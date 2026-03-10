@@ -1,10 +1,20 @@
 import { Component, inject, signal, OnInit } from '@angular/core';
 import { ApiService } from '../../services/api.service';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-icons/lucide';
 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [],
+  imports: [NgIcon],
+  providers: [
+    provideIcons({
+      lucideEye,
+      lucideEyeOff,
+      lucideCheckCircle,
+      lucideXCircle,
+    }),
+  ],
   template: `
     <div class="settings-page">
       <div class="settings-header">
@@ -54,8 +64,9 @@ import { ApiService } from '../../services/api.service';
               <button
                 class="btn btn-ghost btn-sm"
                 (click)="toggleShowKey(p.key)"
+                [title]="showKeys().has(p.key) ? 'Hide key' : 'Show key'"
               >
-                {{ showKeys().has(p.key) ? '🙈' : '👁️' }}
+                <ng-icon [name]="showKeys().has(p.key) ? 'lucideEyeOff' : 'lucideEye'" size="16" />
               </button>
               <button
                 class="btn btn-sm"
@@ -67,7 +78,13 @@ import { ApiService } from '../../services/api.service';
             </div>
             @if (validationResults()[p.key]) {
               <div class="validation-result" [class.valid]="validationResults()[p.key] === 'valid'">
-                {{ validationResults()[p.key] === 'valid' ? '✅ Valid' : '❌ ' + validationResults()[p.key] }}
+                @if (validationResults()[p.key] === 'valid') {
+                  <ng-icon name="lucideCheckCircle" size="14" class="mr-1" />
+                  <span>Valid</span>
+                } @else {
+                  <ng-icon name="lucideXCircle" size="14" class="mr-1" />
+                  <span>{{ validationResults()[p.key] }}</span>
+                }
               </div>
             }
           </div>
@@ -80,7 +97,10 @@ import { ApiService } from '../../services/api.service';
           {{ saving() ? 'Saving…' : 'Save Settings' }}
         </button>
         @if (saved()) {
-          <span class="save-success">✅ Settings saved!</span>
+          <span class="save-success">
+            <ng-icon name="lucideCheckCircle" size="14" class="mr-1" />
+            Settings saved!
+          </span>
         }
       </div>
     </div>

@@ -1,10 +1,43 @@
 import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
 import { FileNode } from '../../models/api.models';
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import {
+  lucideFolder, lucideFolderOpen, lucideFile, lucideFileCode,
+  lucideFileText, lucideFileJson, lucideSettings, lucideDatabase,
+  lucideTerminal, lucideGlobe, lucidePackage, lucideGitBranch,
+} from '@ng-icons/lucide';
+
+// Map file extension → lucide icon name
+const EXT_ICON: Record<string, string> = {
+  ts: 'lucideFileCode', tsx: 'lucideFileCode',
+  js: 'lucideFileCode', jsx: 'lucideFileCode', mjs: 'lucideFileCode',
+  go: 'lucideFileCode',
+  py: 'lucideFileCode',
+  rs: 'lucideFileCode',
+  java: 'lucideFileCode', kt: 'lucideFileCode',
+  cs: 'lucideFileCode',
+  html: 'lucideGlobe', vue: 'lucideGlobe', svelte: 'lucideGlobe',
+  css: 'lucideFileText', scss: 'lucideFileText',
+  json: 'lucideFileJson', jsonc: 'lucideFileJson',
+  yaml: 'lucideSettings', yml: 'lucideSettings', toml: 'lucideSettings',
+  md: 'lucideFileText', mdx: 'lucideFileText',
+  sql: 'lucideDatabase',
+  sh: 'lucideTerminal', bash: 'lucideTerminal', zsh: 'lucideTerminal',
+  dockerfile: 'lucidePackage',
+  gitignore: 'lucideGitBranch', gitattributes: 'lucideGitBranch',
+};
 
 @Component({
   selector: 'app-file-tree',
   standalone: true,
-  imports: [],
+  imports: [NgIcon],
+  providers: [
+    provideIcons({
+      lucideFolder, lucideFolderOpen, lucideFile, lucideFileCode,
+      lucideFileText, lucideFileJson, lucideSettings, lucideDatabase,
+      lucideTerminal, lucideGlobe, lucidePackage, lucideGitBranch,
+    }),
+  ],
   template: `
     @if (node) {
       <div class="tree">
@@ -15,9 +48,11 @@ import { FileNode } from '../../models/api.models';
                 class="tree-item tree-folder"
                 (click)="toggleDir(child.path)"
               >
-                <span class="tree-icon">
-                  {{ expandedDirs().has(child.path) ? '📂' : '📁' }}
-                </span>
+                <ng-icon
+                  class="tree-icon"
+                  [name]="expandedDirs().has(child.path) ? 'lucideFolderOpen' : 'lucideFolder'"
+                  size="14"
+                />
                 <span class="tree-label">{{ child.name }}</span>
               </button>
               @if (expandedDirs().has(child.path)) {
@@ -37,7 +72,11 @@ import { FileNode } from '../../models/api.models';
               [class.active]="selectedFile === child.path"
               (click)="fileSelect.emit(child.path)"
             >
-              <span class="tree-icon">{{ getFileIcon(child.name) }}</span>
+              <ng-icon
+                class="tree-icon"
+                [name]="getFileIconName(child.name)"
+                size="14"
+              />
               <span class="tree-label">{{ child.name }}</span>
               @if (child.size) {
                 <span class="tree-size">{{ formatSize(child.size) }}</span>
@@ -76,7 +115,15 @@ import { FileNode } from '../../models/api.models';
       font-weight: var(--font-medium);
     }
 
-    .tree-icon { font-size: 14px; flex-shrink: 0; width: 18px; text-align: center; }
+    .tree-icon {
+      flex-shrink: 0;
+      width: 16px;
+      color: var(--text-muted);
+    }
+
+    .tree-folder .tree-icon { color: var(--primary); }
+    .tree-item.active .tree-icon { color: var(--primary); }
+
     .tree-label {
       overflow: hidden;
       text-overflow: ellipsis;
@@ -114,16 +161,14 @@ export class FileTreeComponent {
     this.expandedDirs.set(current);
   }
 
-  getFileIcon(name: string): string {
+  getFileIconName(name: string): string {
+    const lower = name.toLowerCase();
+    // Check full filename first (dockerfile, .gitignore etc)
+    if (lower === 'dockerfile' || lower.startsWith('docker')) return 'lucidePackage';
+    if (lower.startsWith('.git')) return 'lucideGitBranch';
+
     const ext = name.split('.').pop()?.toLowerCase() || '';
-    const icons: Record<string, string> = {
-      ts: '🔷', js: '🟡', go: '🔵', py: '🐍',
-      html: '🟠', css: '🎨', json: '📋', md: '📝',
-      yaml: '⚙️', yml: '⚙️', sql: '🗄️', sh: '💻',
-      toml: '⚙️', rs: '🦀', java: '☕', vue: '💚',
-      svelte: '🔥', dockerfile: '🐳',
-    };
-    return icons[ext] || '📄';
+    return EXT_ICON[ext] || 'lucideFile';
   }
 
   formatSize(bytes: number): string {

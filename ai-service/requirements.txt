@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+httpx
+langchain
+chromadb
+faiss-cpu
+neo4j
+python-dotenv

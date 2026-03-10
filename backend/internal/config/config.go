@@ -6,6 +6,7 @@ type Config struct {
 	Port         string
 	DatabasePath string
 	DataDir      string
+	AIServiceURL string
 }
 
 func Load() *Config {
@@ -13,6 +14,7 @@ func Load() *Config {
 		Port:         getEnv("PORT", "8080"),
 		DatabasePath: getEnv("DATABASE_PATH", "./data/codewiki.db"),
 		DataDir:      getEnv("DATA_DIR", "./data"),
+		AIServiceURL: getEnv("AI_SERVICE_URL", "http://localhost:8000"),
 	}
 }
 
