@@ -11,8 +11,9 @@ services:
       - AI_SERVICE_URL=http://ai-brain:8000
     volumes:
       - backend-data:/app/data
-      # Mount the current project root so we can analyze it from inside the container
-      - .:/projects:ro
+      # ⚠️ สำหรับ WINDOWS: แก้ไขบรรทัดล่างให้เป็น Path ที่เก็บโปรเจกต์ของคุณ
+      # เช่น - D:/work:/projects:ro (จะทำให้อ่านไฟล์ใน D:/work ผ่าน container path /projects ได้)
+      - D:/work:/projects:ro
     depends_on:
       - ai-brain
 
@@ -52,6 +53,7 @@ services:
       - "7687:7687"
     environment:
       - NEO4J_AUTH=neo4j/password
+      - NEO4J_dbms_connector_bolt_advertised__address=localhost:7687
     volumes:
       - neo4j-data:/data
 
