@@ -19,7 +19,7 @@ graph TD
 
     subgraph "AI Service (Python 3.10+)"
         FastAPI["FastAPI Orchestrator"]
-        BGE["Embedding Service (BGE-M3)"]
+        Embedding["Chroma Runtime (Default Embedding)"]
         Ollama["Local LLM (Ollama)"]
         CloudLLM["Cloud LLM (Gemini/OpenAI/Claude)"]
         DB_Chroma[("ChromaDB\n(Vector Search)")]
