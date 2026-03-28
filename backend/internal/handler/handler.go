@@ -682,3 +682,36 @@ func (h *Handler) triggerGraphSync(projectPath string) {
 	url := baseURL + "/api/v1/sync-project-graph"
 	http.Post(url, "application/json", bytes.NewReader(body))
 }
+
+func (h *Handler) GetProjectGraph(w http.ResponseWriter, r *http.Request) {
+	projectPath := r.URL.Query().Get("project_path")
+	filePath := r.URL.Query().Get("file_path")
+	if projectPath == "" || filePath == "" {
+		writeError(w, http.StatusBadRequest, "project_path and file_path are required")
+		return
+	}
+
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	// Important: use QueryEscape for paths as they contain slashes and spaces
+	url := fmt.Sprintf("%s/api/v1/subgraph?project_path=%s&file_path=%s",
+		baseURL, strings.ReplaceAll(projectPath, " ", "%20"), strings.ReplaceAll(filePath, " ", "%20"))
+
+	resp, err := http.Get(url)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "ai-service connection failed: "+err.Error())
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		writeError(w, resp.StatusCode, "ai-service error")
+		return
+	}
+
+	var result interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to decode ai-service response")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}

@@ -89,6 +89,7 @@ func main() {
 		// AI Features
 		r.Post("/qa", h.CodeQA)
 		r.Post("/impact-analysis", h.AnalyzeImpact)
+		r.Get("/graph", h.GetProjectGraph)
 	})
 
 	addr := fmt.Sprintf(":%s", cfg.Port)

@@ -3,14 +3,13 @@ import { ApiService } from '../../services/api.service';
 import { FileNode } from '../../models/api.models';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideFile, lucideZap, lucideSearch } from '@ng-icons/lucide';
-import { MarkdownComponent } from 'ngx-markdown';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-search-panel',
   standalone: true,
-  imports: [NgIcon, MarkdownComponent, CommonModule, FormsModule],
+  imports: [NgIcon, CommonModule, FormsModule],
   providers: [provideIcons({ lucideFile, lucideZap, lucideSearch })],
   template: `
     <div class="search-panel">

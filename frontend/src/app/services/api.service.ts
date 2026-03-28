@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
   FileNode,
@@ -106,6 +106,13 @@ export class ApiService {
 
   analyzeImpact(req: ImpactAnalysisRequest): Observable<ImpactAnalysisResponse> {
     return this.http.post<ImpactAnalysisResponse>(`${this.baseUrl}/impact-analysis`, req);
+  }
+
+  getGraph(projectPath: string, filePath: string): Observable<any> {
+    const params = new HttpParams()
+      .set('project_path', projectPath)
+      .set('file_path', filePath);
+    return this.http.get<any>(`${this.baseUrl}/graph`, { params });
   }
 
   triggerIndex(projectPath: string): Observable<{ status: string }> {

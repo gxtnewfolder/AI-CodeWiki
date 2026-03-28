@@ -1,4 +1,5 @@
 import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { MarkdownComponent } from 'ngx-markdown';
 import { SummaryResponse, DepsResult } from '../../models/api.models';
 import { DepGraphComponent } from '../dep-graph/dep-graph.component';
@@ -9,10 +10,9 @@ import { inject } from '@angular/core';
 import { ProjectService } from '../../services/project.service';
 
 @Component({
-// ... (rest of metadata)
   selector: 'app-summary-viewer',
   standalone: true,
-  imports: [MarkdownComponent, DepGraphComponent, NgIcon],
+  imports: [MarkdownComponent, DepGraphComponent, NgIcon, CommonModule],
   providers: [
     provideIcons({
       lucideFile,
@@ -104,6 +104,7 @@ import { ProjectService } from '../../services/project.service';
           <div class="viewer-deps-divider" (mousedown)="onResizeDeps($event)"></div>
           <div class="viewer-deps" [style.width.px]="depsWidth()">
             <app-dep-graph
+              [projectPath]="projectPath"
               [deps]="deps"
               [currentFile]="filePath"
               [impactAnalysis]="impactAnalysis()"

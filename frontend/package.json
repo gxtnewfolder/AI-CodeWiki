@@ -29,7 +29,8 @@
     "ngx-sonner": ">=3.0.0",
     "rxjs": "~7.8.0",
     "tailwind-merge": "^3.5.0",
-    "tslib": "^2.3.0"
+    "tslib": "^2.3.0",
+    "vis-network": "^10.0.2"
   },
   "devDependencies": {
     "@angular/build": "^21.2.1",

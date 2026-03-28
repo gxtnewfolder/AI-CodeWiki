@@ -169,6 +169,98 @@ async def analyze_impact(request: ImpactAnalysisRequest) -> ImpactAnalysisRespon
     )
 
 
+NOISY_LIBS = [
+    "react", "react-dom", "react-i18next", "next/", "next-auth",
+    "lucide-react", "sonner", "clsx", "tailwind-merge", "zod", 
+    "framer-motion", "valibot", "lucide", "@spartan-ng",
+    "prisma/client", "@prisma/client", "node_modules"
+]
+
+def is_noise(path: str) -> bool:
+    path_lower = path.lower()
+    for noise in NOISY_LIBS:
+        if noise.lower() in path_lower:
+            return True
+    # Heuristic: simple names without extensions are often library names
+    if "/" not in path and "." not in path:
+        return True
+    return False
+
+async def get_subgraph(project_path: str, file_path: str):
+    """
+    Query Neo4j for visualization around a central file (2-hop radius).
+    Returns data formatted for vis-network with noise filtering.
+    """
+    cypher = """
+    MATCH (f:File {path: $path})
+    OPTIONAL MATCH (f)-[r:IMPORTS*1..2]-(connected:File)
+    WITH f, connected, r
+    RETURN f, collect(DISTINCT connected) as connections, collect(DISTINCT r) as rels
+    """
+    
+    results = graph_db.query(cypher, {"path": file_path})
+    
+    # If no data, try to sync first
+    if not results or not results[0]['f']:
+        await sync_graph(project_path, file_path)
+        results = graph_db.query(cypher, {"path": file_path})
+
+    nodes = []
+    edges = []
+    seen_nodes = set()
+    seen_edges = set()
+
+    if results and results[0]['f']:
+        # Central node (NEVER filtered)
+        f = results[0]['f']
+        central_path = f['path']
+        nodes.append({
+            "id": central_path,
+            "label": central_path.split('/')[-1],
+            "title": central_path,
+            "group": "center",
+            "color": "#14b8a6" # Teal 500
+        })
+        seen_nodes.add(central_path)
+
+        # Connected nodes (Filtered for noise)
+        for conn in results[0]['connections'] or []:
+            path = conn['path']
+            if path not in seen_nodes and not is_noise(path):
+                nodes.append({
+                    "id": path,
+                    "label": path.split('/')[-1],
+                    "title": path,
+                    "group": "connected"
+                })
+                seen_nodes.add(path)
+
+        # Relationship edges (Filtered: both ends must exist in our filtered nodes)
+        rel_cypher = """
+        MATCH (f:File {path: $path})
+        OPTIONAL MATCH (f)-[r:IMPORTS*1..2]-(connected:File)
+        MATCH (n:File)-[rel:IMPORTS]->(m:File)
+        WHERE n IN ([f] + connected) AND m IN ([f] + connected)
+        RETURN n.path as from, m.path as to, rel.symbol as symbol
+        """
+        rel_results = graph_db.query(rel_cypher, {"path": file_path})
+        
+        for rel in rel_results:
+            if rel['from'] in seen_nodes and rel['to'] in seen_nodes:
+                edge_id = f"{rel['from']}->{rel['to']}"
+                if edge_id not in seen_edges:
+                    edges.append({
+                        "from": rel['from'],
+                        "to": rel['to'],
+                        "label": rel['symbol'] or "imports",
+                        "arrows": "to",
+                        "color": {"color": "#94a3b8", "highlight": "#14b8a6"}
+                    })
+                    seen_edges.add(edge_id)
+
+    return {"nodes": nodes, "edges": edges}
+
+
 async def sync_project_dependencies(request: ProjectGraphSyncRequest):
     """
     Sync all dependencies for a whole project at once.

@@ -1,16 +1,17 @@
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, ElementRef, ViewChild, AfterViewInit } from '@angular/core';
+import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { DepsResult } from '../../models/api.models';
 import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideActivity, lucideLink, lucideDownload, lucideUpload, lucideZap } from '@ng-icons/lucide';
 import { ImpactAnalysisResponse } from '../../models/api.models';
 import { MarkdownComponent } from 'ngx-markdown';
+import { GraphViewerComponent } from '../graph-viewer/graph-viewer.component';
 
 declare const mermaid: any;
 
 @Component({
   selector: 'app-dep-graph',
   standalone: true,
-  imports: [NgIcon, MarkdownComponent],
+  imports: [NgIcon, MarkdownComponent, GraphViewerComponent],
   providers: [
     provideIcons({
       lucideActivity,
@@ -57,8 +58,13 @@ declare const mermaid: any;
         </div>
       } @else {
         <div class="dep-content">
-          <!-- Mermaid diagram -->
-          <div #mermaidContainer class="mermaid-container"></div>
+          <!-- Interactive Vis-Network Graph (Powered by Neo4j) -->
+          <div class="graph-viewer-wrapper">
+            <app-graph-viewer 
+              [projectPath]="projectPath" 
+              [filePath]="currentFile" 
+            />
+          </div>
 
           <!-- Deps list fallback / detail -->
           <div class="dep-lists">
@@ -140,23 +146,15 @@ declare const mermaid: any;
       flex-direction: column;
     }
 
-    .mermaid-container {
-      padding: var(--space-4);
-      min-height: 200px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      overflow: auto;
-    }
-
-    .mermaid-container :global(svg) {
-      max-width: 100%;
-      height: auto;
+    .graph-viewer-wrapper {
+      width: 100%;
+      height: 400px; /* More room for nodes to breathe */
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
     }
 
     .dep-lists {
       padding: var(--space-2) 0;
-      border-top: 1px solid var(--border);
     }
 
     .dep-section { margin-bottom: var(--space-2); }
@@ -293,134 +291,15 @@ declare const mermaid: any;
     }
   `],
 })
-export class DepGraphComponent implements OnChanges, AfterViewInit {
+export class DepGraphComponent {
+  @Input() projectPath = '';
   @Input() deps: DepsResult | null = null;
   @Input() currentFile: string = '';
   @Input() impactAnalysis: ImpactAnalysisResponse | null = null;
   @Output() fileSelect = new EventEmitter<string>();
   @Output() analyzeImpact = new EventEmitter<void>();
 
-  @ViewChild('mermaidContainer') mermaidContainer!: ElementRef;
-
-  private mermaidInitialized = false;
-
-  ngAfterViewInit() {
-    this.loadMermaid();
-  }
-
-  ngOnChanges(changes: SimpleChanges) {
-    if ((changes['deps'] || changes['impactAnalysis']) && (this.deps || this.impactAnalysis)) {
-      setTimeout(() => this.renderDiagram(), 100);
-    }
-  }
-
   onNodeClick(filePath: string) {
     this.fileSelect.emit(filePath);
-  }
-
-  private async loadMermaid() {
-    if (typeof mermaid !== 'undefined') {
-      this.initMermaid();
-      return;
-    }
-
-    // Dynamically load mermaid from CDN
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
-    script.onload = () => this.initMermaid();
-    document.head.appendChild(script);
-  }
-
-  private initMermaid() {
-    if (this.mermaidInitialized) return;
-
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: isDark ? 'dark' : 'default',
-      flowchart: { curve: 'basis', padding: 12 },
-      securityLevel: 'loose',
-    });
-    this.mermaidInitialized = true;
-
-    if (this.deps) {
-      this.renderDiagram();
-    }
-  }
-
-  private async renderDiagram() {
-    if (!this.mermaidContainer || !this.deps || typeof mermaid === 'undefined') return;
-
-    const diagram = this.generateMermaidSyntax();
-    if (!diagram) return;
-
-    try {
-      const { svg } = await mermaid.render('dep-diagram-' + Date.now(), diagram);
-      this.mermaidContainer.nativeElement.innerHTML = svg;
-
-      // Add click handlers to nodes
-      const nodes = this.mermaidContainer.nativeElement.querySelectorAll('.node');
-      nodes.forEach((node: HTMLElement) => {
-        node.style.cursor = 'pointer';
-      });
-    } catch (e) {
-      // Fallback: just show text
-      this.mermaidContainer.nativeElement.innerHTML =
-        '<pre style="font-size:11px;color:var(--text-subtle)">' + diagram + '</pre>';
-    }
-  }
-
-  private generateMermaidSyntax(): string {
-    if (!this.deps) return '';
-
-    const imports = this.deps?.imports || [];
-    const importedBy = this.deps?.imported_by || [];
-    const impactNodes = this.impactAnalysis?.nodes || [];
-    const impactEdges = this.impactAnalysis?.edges || [];
-
-    if (imports.length === 0 && importedBy.length === 0 && impactNodes.length === 0) return '';
-
-    const lines: string[] = ['graph TD'];
-    const currentId = this.sanitizeId(this.currentFile || this.deps.file_path);
-    const currentLabel = this.shortName(this.currentFile || this.deps.file_path);
-
-    lines.push(`    ${currentId}["🎯 ${currentLabel}"]`);
-    lines.push(`    style ${currentId} fill:#0d9488,color:#fff,stroke:#0d9488`);
-
-    // Imports: current file → dependency
-    for (const dep of imports.slice(0, 12)) {
-      const depId = this.sanitizeId(dep.symbol);
-      const depLabel = this.shortName(dep.symbol);
-      lines.push(`    ${currentId} -->|imports| ${depId}["${depLabel}"]`);
-      lines.push(`    style ${depId} fill:#1e293b,color:#94a3b8,stroke:#334155`);
-    }
-
-    // Imported by: other file → current file
-    for (const dep of importedBy.slice(0, 8)) {
-      const depId = this.sanitizeId(dep.file_path);
-      const depLabel = this.shortName(dep.file_path);
-      lines.push(`    ${depId}["${depLabel}"] -->|uses| ${currentId}`);
-      lines.push(`    style ${depId} fill:#92400e,color:#fbbf24,stroke:#b45309`);
-    }
-
-    // AI Impact Edges
-    for (const edge of impactEdges) {
-      const srcId = this.sanitizeId(edge.source);
-      const targetId = this.sanitizeId(edge.target);
-      lines.push(`    ${srcId} -.->|${edge.relation}| ${targetId}`);
-    }
-
-    return lines.join('\n');
-  }
-
-  private sanitizeId(path: string): string {
-    return path.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 40);
-  }
-
-  private shortName(path: string): string {
-    const parts = path.split('/');
-    return parts.length > 2
-      ? '…/' + parts.slice(-2).join('/')
-      : parts.join('/');
   }
 }
