@@ -1,3 +1,4 @@
+# Force reload
 from typing import List
 
 import httpx
@@ -9,6 +10,7 @@ from models.impact import (
     ImpactAnalysisResponse,
     ImpactNode,
     ImpactEdge,
+    ProjectGraphSyncRequest,
 )
 from services.ollama_client import generate_markdown_response
 
@@ -152,11 +154,50 @@ async def analyze_impact(request: ImpactAnalysisRequest) -> ImpactAnalysisRespon
         f"ข้อมูลจาก dependency graph:\n{graph_text}\n"
     )
 
-    analysis_md = await generate_markdown_response(prompt, model_type="general")
+    analysis_md = await generate_markdown_response(
+        prompt, 
+        model_type="general", 
+        model_name=request.model,
+        provider=request.provider,
+        api_key=request.api_key
+    )
 
     return ImpactAnalysisResponse(
         analysis_md=analysis_md,
         nodes=nodes,
         edges=edges,
     )
+
+
+async def sync_project_dependencies(request: ProjectGraphSyncRequest):
+    """
+    Sync all dependencies for a whole project at once.
+    """
+    print(f"Full Graph Sync for project: {request.project_path} ({len(request.analysis)} files)")
+    
+    for res in request.analysis:
+        center_path = res.file_path
+        
+        # Merge center node
+        graph_db.query(
+            "MERGE (f:File {path: $path}) SET f.indexed_at = datetime(), f.language = $lang",
+            {"path": center_path, "lang": res.language}
+        )
+        
+        # Merge imports
+        for imp in res.imports:
+            dep_path = imp.file_path
+            if not dep_path: continue
+            
+            graph_db.query(
+                """
+                MERGE (c:File {path: $center})
+                MERGE (d:File {path: $dep})
+                MERGE (c)-[r:IMPORTS]->(d)
+                SET r.symbol = $symbol, r.line = $line
+                """,
+                {"center": center_path, "dep": dep_path, "symbol": imp.symbol, "line": imp.line}
+            )
+            
+    print(f"Graph Sync Complete for {request.project_path}")
 

@@ -51,6 +51,24 @@ func (c *Cache) Set(projectPath, filePath, fileHash, summaryMD, provider string)
 	return err
 }
 
+// ListIndexedFiles returns a map of all file paths that have an existing summary.
+func (c *Cache) ListIndexedFiles(projectPath string) (map[string]bool, error) {
+	rows, err := c.DB.Query("SELECT file_path FROM file_summaries WHERE project_path = ?", projectPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indexedFiles := make(map[string]bool)
+	for rows.Next() {
+		var fp string
+		if err := rows.Scan(&fp); err == nil {
+			indexedFiles[fp] = true
+		}
+	}
+	return indexedFiles, nil
+}
+
 // Stats returns cache statistics.
 func (c *Cache) Stats() (total int, err error) {
 	err = c.DB.QueryRow("SELECT COUNT(*) FROM file_summaries").Scan(&total)

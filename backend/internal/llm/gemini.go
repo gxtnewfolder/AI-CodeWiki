@@ -20,7 +20,7 @@ func (g *GeminiProvider) Summarize(ctx context.Context, code string, prompt stri
 		prompt = DefaultSystemPrompt
 	}
 
-	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=%s", g.APIKey)
+	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=%s", g.APIKey)
 
 	body := map[string]interface{}{
 		"system_instruction": map[string]interface{}{

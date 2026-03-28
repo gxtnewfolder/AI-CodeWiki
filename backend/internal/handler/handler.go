@@ -62,7 +62,14 @@ func (h *Handler) GetTree(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ignorePatterns := scanner.LoadIgnorePatterns(path)
-	tree, err := scanner.ScanDirectory(path, ignorePatterns)
+	
+	// Get indexed files to mark them in the tree
+	indexedFiles, _ := h.cache.ListIndexedFiles(path)
+	if indexedFiles == nil {
+		indexedFiles = make(map[string]bool)
+	}
+
+	tree, err := scanner.ScanDirectory(path, ignorePatterns, indexedFiles)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to scan directory: "+err.Error())
 		return
@@ -96,6 +103,9 @@ type aiServiceSummaryRequest struct {
 	ProjectPath string `json:"project_path"`
 	FilePath    string `json:"file_path"`
 	FileContent string `json:"file_content"`
+	Model       string `json:"model,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	APIKey      string `json:"api_key,omitempty"`
 }
 
 type aiServiceSummaryResponse struct {
@@ -160,12 +170,15 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 	var summary string
 
 	if providerName == "ollama" {
-		summary, err = h.callAISummary(req.ProjectPath, req.FilePath, string(content))
+		modelName := h.getSetting("llm_model", "qwen2.5-coder:7b")
+		summary, err = h.callAISummary(req.ProjectPath, req.FilePath, string(content), modelName, providerName, "")
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "AI summarization failed: "+err.Error())
 			return
 		}
 	} else {
+		// Even for other providers, if the user explicitly wants to use the Py service (optional feature check)
+		// For now, let's keep the existing Go direct call but extend callAISummary signature
 		apiKey := h.getSetting("llm_key_"+providerName, "")
 		if apiKey == "" {
 			writeError(w, http.StatusBadRequest, "no API key configured for provider: "+providerName)
@@ -197,7 +210,7 @@ func (h *Handler) GetSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 // callAISummary forwards the summarization request to the Python AI microservice.
-func (h *Handler) callAISummary(projectPath, filePath, content string) (string, error) {
+func (h *Handler) callAISummary(projectPath, filePath, content, model, provider, apiKey string) (string, error) {
 	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
 	if baseURL == "" {
 		return "", fmt.Errorf("AI_SERVICE_URL is not configured")
@@ -207,6 +220,9 @@ func (h *Handler) callAISummary(projectPath, filePath, content string) (string, 
 		ProjectPath: projectPath,
 		FilePath:    filePath,
 		FileContent: content,
+		Model:       model,
+		Provider:    provider,
+		APIKey:      apiKey,
 	}
 
 	body, err := json.Marshal(payload)
@@ -249,7 +265,14 @@ func (h *Handler) SearchFiles(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ignorePatterns := scanner.LoadIgnorePatterns(path)
-	tree, err := scanner.ScanDirectory(path, ignorePatterns)
+	
+	// Get indexed files to mark them (needed for consistency)
+	indexedFiles, _ := h.cache.ListIndexedFiles(path)
+	if indexedFiles == nil {
+		indexedFiles = make(map[string]bool)
+	}
+
+	tree, err := scanner.ScanDirectory(path, ignorePatterns, indexedFiles)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to scan: "+err.Error())
 		return
@@ -505,8 +528,24 @@ func (h *Handler) CodeQA(w http.ResponseWriter, r *http.Request) {
 		req.MaxContextFiles = 5
 	}
 
+	// Fetch model and provider from settings
+	modelName := h.getSetting("llm_model", "qwen2.5-coder:7b")
+	providerName := h.getSetting("llm_provider", "ollama")
+	apiKey := h.getSetting("llm_key_"+providerName, "")
+
 	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
-	body, _ := json.Marshal(req)
+	
+	// Create a map to inject model and provider
+	payload := map[string]interface{}{
+		"project_path":       req.ProjectPath,
+		"question":           req.Question,
+		"max_context_files": req.MaxContextFiles,
+		"model":              modelName,
+		"provider":           providerName,
+		"api_key":            apiKey,
+	}
+	
+	body, _ := json.Marshal(payload)
 	url := baseURL + "/api/v1/project-qa"
 
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
@@ -537,8 +576,23 @@ func (h *Handler) AnalyzeImpact(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Fetch model and provider from settings
+	modelName := h.getSetting("llm_model", "qwen2.5-coder:7b")
+	providerName := h.getSetting("llm_provider", "ollama")
+	apiKey := h.getSetting("llm_key_"+providerName, "")
+
 	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
-	body, _ := json.Marshal(req)
+	
+	payload := map[string]interface{}{
+		"project_path": req.ProjectPath,
+		"file_path":    req.FilePath,
+		"question":     req.Question,
+		"model":        modelName,
+		"provider":     providerName,
+		"api_key":      apiKey,
+	}
+	
+	body, _ := json.Marshal(payload)
 	url := baseURL + "/api/v1/impact"
 
 	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
@@ -582,30 +636,49 @@ func (h *Handler) IndexProject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) callAIIndex(projectPath string) error {
-	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
-	if baseURL == "" {
-		return fmt.Errorf("AI_SERVICE_URL is not configured")
-	}
+	// 1. Trigger Vector DB Indexing (ChromaDB)
+	go h.triggerVectorIndex(projectPath)
 
-	payload := map[string]string{
-		"project_path": projectPath,
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	url := baseURL + "/api/v1/index-codebase"
-	resp, err := http.Post(url, "application/json", bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("ai-service returned status %d", resp.StatusCode)
-	}
+	// 2. Trigger Graph DB Sync (Neo4j)
+	go h.triggerGraphSync(projectPath)
 
 	return nil
+}
+
+func (h *Handler) triggerVectorIndex(projectPath string) {
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	payload := map[string]string{"project_path": projectPath}
+	body, _ := json.Marshal(payload)
+	url := baseURL + "/api/v1/index-codebase"
+	http.Post(url, "application/json", bytes.NewReader(body))
+}
+
+func (h *Handler) triggerGraphSync(projectPath string) {
+	baseURL := strings.TrimRight(h.cfg.AIServiceURL, "/")
+	
+	// Scan all files for dependencies
+	var allFiles []string
+	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		// Filter out common ignored dirs manually for the walk
+		rel, _ := filepath.Rel(projectPath, path)
+		if strings.Contains(rel, "node_modules") || strings.Contains(rel, ".git") {
+			return nil
+		}
+		allFiles = append(allFiles, filepath.ToSlash(rel))
+		return nil
+	})
+
+	analysis := deps.AnalyzeProject(projectPath, allFiles)
+	
+	payload := map[string]interface{}{
+		"project_path": projectPath,
+		"analysis":     analysis,
+	}
+	
+	body, _ := json.Marshal(payload)
+	url := baseURL + "/api/v1/sync-project-graph"
+	http.Post(url, "application/json", bytes.NewReader(body))
 }

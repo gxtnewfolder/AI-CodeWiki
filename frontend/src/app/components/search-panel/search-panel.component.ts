@@ -64,7 +64,7 @@ import { FormsModule } from '@angular/forms';
       <div class="results-viewport hlm-scrollbar">
         @if (mode() === 'search') {
           @if (results().length > 0) {
-            <div class="search-results-list">
+            <div class="search-results-list animate-in">
               <div class="results-header">
                 {{ results().length }} files found
               </div>
@@ -78,7 +78,7 @@ import { FormsModule } from '@angular/forms';
               }
             </div>
           } @else if (query() && !searching()) {
-            <div class="empty-state-illust">
+            <div class="empty-state-illust animate-in">
               <div class="empty-icon-circle">
                 <ng-icon name="lucideSearch" size="24" />
               </div>
@@ -87,7 +87,7 @@ import { FormsModule } from '@angular/forms';
           }
         } @else {
           @if (!searching() && !query()) {
-            <div class="empty-state-illust">
+            <div class="empty-state-illust animate-in">
               <div class="empty-icon-circle ai">
                 <ng-icon name="lucideZap" size="24" />
               </div>

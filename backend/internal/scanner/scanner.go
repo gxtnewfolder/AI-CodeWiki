@@ -8,14 +8,15 @@ import (
 )
 
 type FileNode struct {
-	Name     string     `json:"name"`
-	Path     string     `json:"path"`
-	IsDir    bool       `json:"is_dir"`
-	Size     int64      `json:"size,omitempty"`
-	Children []FileNode `json:"children,omitempty"`
+	Name       string     `json:"name"`
+	Path       string     `json:"path"`
+	IsDir      bool       `json:"is_dir"`
+	Size       int64      `json:"size,omitempty"`
+	HasSummary bool       `json:"has_summary"`
+	Children   []FileNode `json:"children,omitempty"`
 }
 
-func ScanDirectory(rootPath string, ignorePatterns []string) (FileNode, error) {
+func ScanDirectory(rootPath string, ignorePatterns []string, indexedFiles map[string]bool) (FileNode, error) {
 	info, err := os.Stat(rootPath)
 	if err != nil {
 		return FileNode{}, err
@@ -27,7 +28,7 @@ func ScanDirectory(rootPath string, ignorePatterns []string) (FileNode, error) {
 		IsDir: true,
 	}
 
-	root.Children, err = scanDir(rootPath, "", ignorePatterns)
+	root.Children, err = scanDir(rootPath, "", ignorePatterns, indexedFiles)
 	if err != nil {
 		return FileNode{}, err
 	}
@@ -35,7 +36,7 @@ func ScanDirectory(rootPath string, ignorePatterns []string) (FileNode, error) {
 	return root, nil
 }
 
-func scanDir(basePath, relPath string, ignorePatterns []string) ([]FileNode, error) {
+func scanDir(basePath, relPath string, ignorePatterns []string, indexedFiles map[string]bool) ([]FileNode, error) {
 	fullPath := filepath.Join(basePath, relPath)
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
@@ -52,13 +53,14 @@ func scanDir(basePath, relPath string, ignorePatterns []string) ([]FileNode, err
 		}
 
 		node := FileNode{
-			Name:  name,
-			Path:  filepath.ToSlash(childRel),
-			IsDir: entry.IsDir(),
+			Name:       name,
+			Path:       filepath.ToSlash(childRel),
+			IsDir:      entry.IsDir(),
+			HasSummary: indexedFiles[filepath.ToSlash(childRel)],
 		}
 
 		if entry.IsDir() {
-			children, err := scanDir(basePath, childRel, ignorePatterns)
+			children, err := scanDir(basePath, childRel, ignorePatterns, indexedFiles)
 			if err != nil {
 				continue // skip unreadable directories
 			}

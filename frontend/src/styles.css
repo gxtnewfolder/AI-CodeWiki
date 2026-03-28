@@ -348,6 +348,32 @@ select {
   clip: rect(0, 0, 0, 0);
 }
 
+/* Entry Animations */
+.animate-in {
+  animation: slide-up-fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes slide-up-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth Interactive Elements */
+.btn, .icon-btn, .tree-item, .nav-item, input, select {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.tree-children {
+  overflow: hidden;
+  transition: max-height 0.3s ease-in-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

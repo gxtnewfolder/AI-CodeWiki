@@ -35,7 +35,7 @@
 <!-- Main Layout -->
 <div class="main-layout">
   <!-- Sidebar -->
-  @if (projectPath() && !showSettings()) {
+  @if (projectPath()) {
     <aside class="sidebar" [style.width.px]="sidebarWidth()">
       <!-- Sidebar Tabs -->
       <nav class="sidebar-tabs">
@@ -128,9 +128,7 @@
 
   <!-- Main Panel -->
   <main class="main-panel">
-    @if (showSettings()) {
-      <app-settings />
-    } @else if (!projectPath()) {
+    @if (!projectPath()) {
       <!-- Welcome Screen -->
       <div class="welcome">
         <ng-icon hlmIcon name="lucideZap" size="xl" class="text-primary" />
@@ -203,6 +201,15 @@
     (folderSelected)="openProject($event)"
     (closed)="showFolderPicker.set(false)"
   />
+}
+
+<!-- Settings Overlay -->
+@if (showSettings()) {
+  <div class="settings-backdrop" (click)="showSettings.set(false)">
+    <div class="settings-container hlm-scrollbar" (click)="$event.stopPropagation()">
+      <app-settings (closed)="showSettings.set(false)" />
+    </div>
+  </div>
 }
 
 <router-outlet />

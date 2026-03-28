@@ -3,6 +3,7 @@ export interface FileNode {
   path: string;
   is_dir: boolean;
   size?: number;
+  has_summary?: boolean;
   children?: FileNode[];
 }
 

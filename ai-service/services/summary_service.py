@@ -28,7 +28,13 @@ async def summarize_file(payload: FileSummaryRequest) -> FileSummaryResponse:
         f"{payload.file_content}\n"
     )
 
-    summary_md = await generate_markdown_response(prompt, model_type="code")
+    summary_md = await generate_markdown_response(
+        prompt, 
+        model_type="code", 
+        model_name=payload.model,
+        provider=payload.provider,
+        api_key=payload.api_key
+    )
 
     return FileSummaryResponse(
         project_path=payload.project_path,

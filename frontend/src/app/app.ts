@@ -1,4 +1,4 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, HostListener } from '@angular/core';
 import { UpperCasePipe } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { ThemeService } from './services/theme.service';
@@ -207,5 +207,11 @@ export class App implements OnInit {
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  }
+
+  @HostListener('window:keydown.escape')
+  handleEscape() {
+    this.showSettings.set(false);
+    this.showFolderPicker.set(false);
   }
 }

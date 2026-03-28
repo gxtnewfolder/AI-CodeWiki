@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter, signal } from '@angular/core';
+import { Component, Input, Output, EventEmitter, signal, inject } from '@angular/core';
 import { FileNode } from '../../models/api.models';
 import { NgIcon, provideIcons } from '@ng-icons/core';
+import { ProjectService } from '../../services/project.service';
 import {
   lucideFolder, lucideFolderOpen, lucideFile, lucideFileCode,
   lucideFileText, lucideFileJson, lucideSettings, lucideDatabase,
@@ -30,7 +31,7 @@ const EXT_ICON: Record<string, string> = {
 @Component({
   selector: 'app-file-tree',
   standalone: true,
-  imports: [NgIcon],
+  imports: [NgIcon, FileTreeComponent],
   providers: [
     provideIcons({
       lucideFolder, lucideFolderOpen, lucideFile, lucideFileCode,
@@ -78,6 +79,11 @@ const EXT_ICON: Record<string, string> = {
                 size="14"
               />
               <span class="tree-label">{{ child.name }}</span>
+              @if (projectService.isIndexed(child.path, child.has_summary)) {
+                <span class="tree-indexed-badge" title="AI Summary Available">
+                  <div class="indexed-dot"></div>
+                </span>
+              }
               @if (child.size) {
                 <span class="tree-size">{{ formatSize(child.size) }}</span>
               }
@@ -89,7 +95,10 @@ const EXT_ICON: Record<string, string> = {
   `,
   styles: [`
     .tree { user-select: none; }
-    .tree-children { padding-left: 16px; }
+    .tree-children {
+      padding-left: 16px;
+      animation: slide-up-fade-in 0.2s ease-out;
+    }
 
     .tree-item {
       display: flex;
@@ -141,6 +150,31 @@ const EXT_ICON: Record<string, string> = {
       flex-shrink: 0;
       font-variant-numeric: tabular-nums;
     }
+
+    .tree-indexed-badge {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      margin-right: 4px;
+    }
+
+    .indexed-dot {
+      width: 6px;
+      height: 6px;
+      background: #10b981; /* Emerald-500 */
+      border-radius: 50%;
+      box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+      animation: pulse-green 2s infinite;
+    }
+
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 5px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
   `],
 })
 export class FileTreeComponent {
@@ -149,6 +183,7 @@ export class FileTreeComponent {
   @Input() depth = 0;
   @Output() fileSelect = new EventEmitter<string>();
 
+  readonly projectService = inject(ProjectService);
   readonly expandedDirs = signal(new Set<string>());
 
   toggleDir(path: string) {

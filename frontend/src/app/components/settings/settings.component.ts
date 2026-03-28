@@ -1,7 +1,7 @@
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, inject, signal, OnInit, Output, EventEmitter } from '@angular/core';
 import { ApiService } from '../../services/api.service';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-icons/lucide';
+import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle, lucideX, lucideZap, lucideBot, lucideCpu, lucideServer } from '@ng-icons/lucide';
 
 @Component({
   selector: 'app-settings',
@@ -13,30 +13,49 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       lucideEyeOff,
       lucideCheckCircle,
       lucideXCircle,
+      lucideX,
+      lucideZap,
+      lucideBot,
+      lucideCpu,
+      lucideServer,
     }),
   ],
   template: `
     <div class="settings-page">
       <div class="settings-header">
-        <h2>Settings</h2>
+        <div class="header-main">
+          <h2>Settings</h2>
+          <button class="btn-close" (click)="closed.emit()" title="Close settings">
+            <ng-icon name="lucideX" size="20" />
+          </button>
+        </div>
         <p class="settings-desc">Configure your LLM provider and API keys</p>
       </div>
 
-      <!-- Provider Selection -->
+      <!-- Provider Selection (Premium Grid) -->
       <div class="settings-card">
-        <h3>LLM Provider</h3>
-        <div class="form-group">
-          <label class="form-label">Active Provider</label>
-          <select
-            class="form-select"
-            [value]="provider()"
-            (change)="onProviderChange($event)"
-          >
-            <option value="gemini">Gemini (Google)</option>
-            <option value="openai">OpenAI (GPT-4o)</option>
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="ollama">Ollama (Local)</option>
-          </select>
+        <label class="form-label mb-4">Active LLM Provider</label>
+        <div class="provider-grid">
+          @for (p of selectionProviders; track p.key) {
+            <button 
+              class="provider-option" 
+              [class.active]="provider() === p.key"
+              (click)="provider.set(p.key)"
+            >
+              <div class="option-icon-box" [class.active]="provider() === p.key">
+                <ng-icon [name]="p.icon" size="20" />
+              </div>
+              <div class="option-info">
+                <div class="option-name">{{ p.name }}</div>
+                <div class="option-desc">{{ p.desc }}</div>
+              </div>
+              @if (provider() === p.key) {
+                <div class="option-check">
+                  <ng-icon name="lucideCheckCircle" size="14" />
+                </div>
+              }
+            </button>
+          }
         </div>
       </div>
 
@@ -116,6 +135,33 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       margin-bottom: var(--space-8);
     }
 
+    .header-main {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-1);
+    }
+
+    .btn-close {
+      margin-top: -8px;
+      margin-right: -8px;
+      padding: 8px;
+      border: none;
+      background: transparent;
+      border-radius: 50%;
+      color: var(--text-subtle);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .btn-close:hover {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
     .settings-header h2 {
       font-size: var(--text-2xl);
       font-weight: var(--font-semibold);
@@ -155,18 +201,82 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       margin-bottom: var(--space-2);
     }
 
-    .badge-active {
-      font-size: 10px;
-      padding: 1px var(--space-2);
-      background: var(--primary-tint);
-      color: var(--primary);
-      border-radius: var(--radius-sm);
-      font-weight: var(--font-medium);
-      letter-spacing: var(--tracking-caps);
-      text-transform: uppercase;
+    /* ─── Provider Grid Selection ─── */
+    .provider-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-3);
     }
 
-    .form-select, .form-input {
+    .provider-option {
+      display: flex;
+      align-items: center;
+      gap: var(--space-4);
+      padding: var(--space-4);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      text-align: left;
+      cursor: pointer;
+      position: relative;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .provider-option:hover {
+      background: var(--target-surface, var(--surface-3));
+      border-color: var(--border-strong);
+      transform: translateY(-2px);
+    }
+
+    .provider-option.active {
+      background: var(--primary-tint);
+      border-color: var(--primary);
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.1);
+    }
+
+    .option-icon-box {
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface-1);
+      border-radius: var(--radius-md);
+      color: var(--text-muted);
+      flex-shrink: 0;
+      transition: all 0.2s;
+    }
+
+    .option-icon-box.active {
+      background: var(--primary);
+      color: white;
+    }
+
+    .option-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .option-name {
+      font-size: var(--text-sm);
+      font-weight: var(--font-semibold);
+      color: var(--text);
+    }
+
+    .option-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .option-check {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: var(--primary);
+    }
+
+    .form-input {
       width: 100%;
       padding: var(--space-2) var(--space-3);
       font-size: var(--text-sm);
@@ -176,9 +286,10 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       background: var(--surface-1);
       color: var(--text);
       outline: none;
+      transition: all 0.2s;
     }
 
-    .form-select:focus, .form-input:focus {
+    .form-input:focus {
       border-color: var(--primary);
       box-shadow: 0 0 0 2px var(--primary-tint);
     }
@@ -194,6 +305,8 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       font-size: var(--text-xs);
       margin-top: var(--space-1);
       color: var(--danger);
+      display: flex;
+      align-items: center;
     }
 
     .validation-result.valid { color: var(--success); }
@@ -202,7 +315,11 @@ import { lucideEye, lucideEyeOff, lucideCheckCircle, lucideXCircle } from '@ng-i
       display: flex;
       align-items: center;
       gap: var(--space-3);
+      margin-top: var(--space-4);
     }
+
+    .mb-4 { margin-bottom: var(--space-4); }
+    .mr-1 { margin-right: var(--space-1); }
 
     .save-success {
       font-size: var(--text-sm);
@@ -220,6 +337,14 @@ export class SettingsComponent implements OnInit {
   readonly validationResults = signal<Record<string, string>>({});
   readonly saving = signal(false);
   readonly saved = signal(false);
+  @Output() closed = new EventEmitter<void>();
+
+  readonly selectionProviders = [
+    { key: 'gemini', name: 'Gemini', icon: 'lucideZap', desc: 'Fast & Versatile' },
+    { key: 'openai', name: 'OpenAI', icon: 'lucideBot', desc: 'Powerful GPT-4o' },
+    { key: 'claude', name: 'Claude', icon: 'lucideCpu', desc: 'Smart & Precise' },
+    { key: 'ollama', name: 'Ollama', icon: 'lucideServer', desc: 'Secure & Local' },
+  ];
 
   readonly providers = [
     { key: 'gemini', label: 'Gemini API Key', placeholder: 'AIza...' },
@@ -244,10 +369,6 @@ export class SettingsComponent implements OnInit {
         this.keys.set(loadedKeys);
       },
     });
-  }
-
-  onProviderChange(event: Event) {
-    this.provider.set((event.target as HTMLSelectElement).value);
   }
 
   onKeyInput(provider: string, event: Event) {

@@ -222,11 +222,14 @@ declare const mermaid: any;
     .ai-impact-btn:hover { background: var(--primary); color: white; }
 
     .ai-insight-panel {
-      margin: var(--space-4);
-      padding: var(--space-4);
-      background: var(--surface-2);
-      border-radius: var(--radius-md);
-      border: 1px dashed var(--primary-tint);
+      margin: 0;
+      padding: var(--space-4) var(--space-4) var(--space-6);
+      background: var(--surface-1);
+      border-bottom: 1px solid var(--border);
+      max-height: 50vh;
+      overflow-y: auto;
+      flex-shrink: 0;
+      animation: slide-up-fade-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
     }
 
     .insight-header {
@@ -241,11 +244,53 @@ declare const mermaid: any;
     }
 
     .insight-body {
-      font-size: 12px;
-      line-height: 1.5;
+      font-size: 13px;
+      line-height: 1.6;
       color: var(--text-muted);
     }
-    .insight-body :global(p) { margin: var(--space-2) 0; }
+    
+    /* Aggressive Headings Fix */
+    :host ::ng-deep .insight-body h1 {
+      font-size: 15px !important;
+      font-weight: 700 !important;
+      margin: 16px 0 8px !important;
+      color: var(--primary) !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+
+    :host ::ng-deep .insight-body h2 {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      margin: 12px 0 4px !important;
+      color: var(--text) !important;
+      border: none !important;
+      padding: 0 !important;
+    }
+
+    :host ::ng-deep .insight-body p { 
+      margin: 8px 0 !important; 
+      font-size: 13px !important;
+    }
+
+    :host ::ng-deep .insight-body ul, 
+    :host ::ng-deep .insight-body ol { 
+      padding-left: 18px !important; 
+      margin: 8px 0 !important; 
+    }
+
+    :host ::ng-deep .insight-body li { 
+      margin: 4px 0 !important; 
+    }
+
+    :host ::ng-deep .insight-body code {
+      background: var(--surface-2) !important;
+      padding: 2px 4px !important;
+      border-radius: 4px !important;
+      font-size: 11px !important;
+      color: var(--primary) !important;
+      font-family: var(--font-mono) !important;
+    }
   `],
 })
 export class DepGraphComponent implements OnChanges, AfterViewInit {

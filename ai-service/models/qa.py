@@ -11,10 +11,16 @@ class ProjectQARequest(BaseModel):
     project_path: str
     question: str
     max_context_files: int = 10
+    model: Optional[str] = None
+    provider: str = "ollama"
+    api_key: Optional[str] = None
 
 
 class IndexRequest(BaseModel):
     project_path: str
+    model: Optional[str] = None
+    provider: str = "ollama"
+    api_key: Optional[str] = None
 
 
 class ProjectQAResponse(BaseModel):

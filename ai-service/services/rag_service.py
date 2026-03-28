@@ -51,10 +51,12 @@ def _score_text(text: str, terms: list[str]) -> int:
 
 async def _retrieve_context_for_question(request: ProjectQARequest) -> List[QAContextSnippet]:
     """
-    RAG Phase 2: Use Vector DB for semantic search.
+    RAG Phase 2: Use Vector DB for semantic search with project-specific filtering.
     """
     n_results = max(1, request.max_context_files or 5)
-    results = vector_db.query(request.question, n_results=n_results)
+    # Filter by project_path to separate projects
+    where = {"project_path": request.project_path}
+    results = vector_db.query(request.question, n_results=n_results, where=where)
     
     snippets = []
     if results and results['documents']:
@@ -72,13 +74,15 @@ async def _retrieve_context_for_question(request: ProjectQARequest) -> List[QACo
 
 async def index_codebase(project_path: str):
     """
-    Index the codebase into ChromaDB.
+    Index the codebase into ChromaDB with project-specific tagging.
     """
     project_root = pathlib.Path(project_path)
     if not project_root.exists():
         return
         
-    vector_db.reset_collection()
+    # Only delete existing data for THIS project, not the entire DB
+    print(f"Purging old vector data for project: {project_path}")
+    vector_db.delete_project_data(project_path)
     
     ids = []
     documents = []
@@ -105,15 +109,19 @@ async def index_codebase(project_path: str):
             except OSError:
                 continue
                 
-            # Naive chunking: split by line blocks or simple size
-            # In a pro version, we'd use LangChain's RecursiveCharacterTextSplitter.from_language
+            # Naive chunking
             for i in range(0, len(content), CHUNK_SIZE - CHUNK_OVERLAP):
                 chunk = content[i:i + CHUNK_SIZE]
-                chunk_id = f"{rel_path}_{i}"
+                chunk_id = f"{project_path}_{rel_path}_{i}" # Project path in ID for uniqueness
                 
                 ids.append(chunk_id)
                 documents.append(chunk)
-                metadatas.append({"file_path": rel_path, "offset": i})
+                # Store project_path in metadata for filtering
+                metadatas.append({
+                    "project_path": project_path,
+                    "file_path": rel_path,
+                    "offset": i
+                })
                 
                 count += 1
                 # Batch add every 100 chunks
@@ -136,17 +144,25 @@ async def answer_project_question(request: ProjectQARequest) -> ProjectQARespons
     )
 
     prompt_parts = [PROJECT_QA_SYSTEM_PROMPT]
+    prompt_parts.append(f"โปรเจกต์ที่สแกนอยู่: {request.project_path}")
     prompt_parts.append(f"คำถามจากผู้ใช้:\n{request.question}")
 
     if joined_context:
-        prompt_parts.append("Context ที่ดึงมาจากโปรเจกต์:")
+        prompt_parts.append("Context ที่ดึงมาจากโปรเจกต์ (สแกนตรงตามโปรเจกต์เป้าหมาย):")
         prompt_parts.append(joined_context)
     else:
         prompt_parts.append("ขณะนี้ยังไม่มี context จาก Vector DB (ใช้ความรู้จากโค้ดที่เห็นในคำถามเป็นหลัก).")
 
     prompt = "\n\n".join(prompt_parts)
 
-    answer_md = await generate_markdown_response(prompt, model_type="general")
+    # Use the model and provider requested by the user if any
+    answer_md = await generate_markdown_response(
+        prompt, 
+        model_type="general", 
+        model_name=request.model,
+        provider=request.provider,
+        api_key=request.api_key
+    )
 
     return ProjectQAResponse(answer_md=answer_md, used_files=context_snippets or None)
 

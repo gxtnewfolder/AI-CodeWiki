@@ -104,32 +104,41 @@ func AnalyzeFile(projectPath, filePath string) *DepsResult {
 	patterns := languagePatterns[lang]
 	expPatterns := exportPatterns[lang]
 
-	var imports []DepLink
-	var exports []string
+	imports := make([]DepLink, 0)
+	exports := make([]string, 0)
 
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
-	inImportBlock := false // for Go's import ( ) blocks
+	inImportBlock := false
 
 	for scanner.Scan() {
 		lineNum++
 		line := scanner.Text()
 		trimmed := strings.TrimSpace(line)
 
-		// Handle Go import blocks
+		// Handle Go import context
+		isGoImport := false
 		if lang == "go" {
-			if trimmed == "import (" {
+			if strings.HasPrefix(trimmed, "import ") && !strings.Contains(trimmed, "(") {
+				isGoImport = true
+			} else if trimmed == "import (" {
 				inImportBlock = true
 				continue
-			}
-			if inImportBlock && trimmed == ")" {
+			} else if inImportBlock && trimmed == ")" {
 				inImportBlock = false
 				continue
+			} else if inImportBlock {
+				isGoImport = true
 			}
 		}
 
 		// Extract imports
 		for _, p := range patterns {
+			// Special handling for Go: only match if in import context
+			if lang == "go" && !isGoImport {
+				continue
+			}
+
 			matches := p.FindStringSubmatch(trimmed)
 			if len(matches) >= 2 {
 				importPath := matches[1]
@@ -155,11 +164,27 @@ func AnalyzeFile(projectPath, filePath string) *DepsResult {
 	}
 
 	return &DepsResult{
-		FilePath: filePath,
-		Language: lang,
-		Imports:  imports,
-		Exports:  exports,
+		FilePath:   filePath,
+		Language:   lang,
+		Imports:    imports,
+		Exports:    exports,
+		ImportedBy: make([]DepLink, 0),
 	}
+}
+
+// AnalyzeProject scans a list of files and extracts dependencies for all of them.
+func AnalyzeProject(projectPath string, files []string) []*DepsResult {
+	results := make([]*DepsResult, 0)
+	for _, fp := range files {
+		lang := DetectLanguage(fp)
+		if lang == "" {
+			continue // Skip non-code files
+		}
+		
+		res := AnalyzeFile(projectPath, fp)
+		results = append(results, res)
+	}
+	return results
 }
 
 // resolveImport tries to resolve an import string to an actual project file path.

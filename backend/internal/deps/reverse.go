@@ -15,7 +15,7 @@ const maxFilesToScan = 200
 func FindReverseDeps(projectPath, targetFile string) []DepLink {
 	targetLang := DetectLanguage(targetFile)
 	if targetLang == "" {
-		return nil
+		return make([]DepLink, 0)
 	}
 
 	// Build search terms: basename without extension, and full relative path
@@ -25,7 +25,7 @@ func FindReverseDeps(projectPath, targetFile string) []DepLink {
 	// Compatible extensions to search
 	searchExts := compatibleExtensions(targetLang)
 
-	var results []DepLink
+	results := make([]DepLink, 0)
 	filesScanned := 0
 
 	filepath.Walk(projectPath, func(path string, info os.FileInfo, err error) error {
@@ -69,16 +69,16 @@ func FindReverseDeps(projectPath, targetFile string) []DepLink {
 func grepFileForImport(fullPath, relPath, targetBase, targetDir, lang string) []DepLink {
 	file, err := os.Open(fullPath)
 	if err != nil {
-		return nil
+		return make([]DepLink, 0)
 	}
 	defer file.Close()
 
 	patterns := languagePatterns[lang]
 	if patterns == nil {
-		return nil
+		return make([]DepLink, 0)
 	}
 
-	var links []DepLink
+	links := make([]DepLink, 0)
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
 

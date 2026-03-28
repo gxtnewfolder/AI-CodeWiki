@@ -6,8 +6,10 @@ import { NgIcon, provideIcons } from '@ng-icons/core';
 import { lucideFile, lucideStar, lucideRefreshCw, lucideChevronLeft, lucideChevronRight, lucideAlertTriangle, lucideZap } from '@ng-icons/lucide';
 import { ApiService } from '../../services/api.service';
 import { inject } from '@angular/core';
+import { ProjectService } from '../../services/project.service';
 
 @Component({
+// ... (rest of metadata)
   selector: 'app-summary-viewer',
   standalone: true,
   imports: [MarkdownComponent, DepGraphComponent, NgIcon],
@@ -59,11 +61,11 @@ import { inject } from '@angular/core';
 
       <!-- Split Content -->
       <div class="viewer-split" [class.split-active]="showDeps()">
-        <!-- Left: Markdown Summary -->
+        <!-- Left: Markdown Summary (with Smooth Entry) -->
         <div class="viewer-content">
           @if (loading) {
             <!-- Skeleton Loading -->
-            <div class="skeleton">
+            <div class="skeleton animate-in">
               <div class="skeleton-line w-40"></div>
               <div class="skeleton-line w-80"></div>
               <div class="skeleton-line w-60"></div>
@@ -77,7 +79,7 @@ import { inject } from '@angular/core';
               <div class="skeleton-line w-65"></div>
             </div>
           } @else if (error) {
-            <div class="error-card">
+            <div class="error-card animate-in">
               <ng-icon name="lucideAlertTriangle" size="32" class="text-danger mb-2" />
               <div class="error-title">Error</div>
               <div class="error-message">{{ error }}</div>
@@ -86,9 +88,14 @@ import { inject } from '@angular/core';
               </button>
             </div>
           } @else if (summary) {
-            <div class="markdown-body">
-              <markdown [data]="summary.summary" />
-            </div>
+            <!-- Re-render div on path change to trigger animation -->
+            @if (filePath; as path) {
+              <div class="markdown-wrapper animate-in">
+                <div class="markdown-body">
+                  <markdown [data]="summary.summary" />
+                </div>
+              </div>
+            }
           }
         </div>
 
@@ -365,6 +372,7 @@ export class SummaryViewerComponent {
   @Input() projectPath = '';
   
   private api = inject(ApiService);
+  private projectService = inject(ProjectService);
   readonly impactAnalysis = signal<any>(null);
   readonly analyzingImpact = signal(false);
 
@@ -386,9 +394,12 @@ export class SummaryViewerComponent {
     });
   }
 
-  // Reset impact when file changes
+  // Mark as indexed and reset impact when file changes
   ngOnChanges() {
     this.impactAnalysis.set(null);
+    if (this.summary && this.filePath) {
+      this.projectService.markAsIndexed(this.filePath);
+    }
   }
 
   readonly showDeps = signal(true);
