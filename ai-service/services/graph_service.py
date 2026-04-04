@@ -12,7 +12,8 @@ from models.impact import (
     ImpactEdge,
     ProjectGraphSyncRequest,
 )
-from services.ollama_client import generate_markdown_response
+from services.ollama_client import route_and_generate
+from services.cache_service import cache_service
 
 class Neo4jService:
     def __init__(self):
@@ -59,6 +60,9 @@ async def sync_graph(project_path: str, file_path: str):
     data = resp.json()
     center_path = data.get("file_path", file_path)
     
+    if is_noise(center_path):
+        return
+
     # Merge center node
     graph_db.query(
         "MERGE (f:File {path: $path}) SET f.indexed_at = datetime()",
@@ -68,7 +72,7 @@ async def sync_graph(project_path: str, file_path: str):
     # Process imports
     for imp in data.get("imports", []) or []:
         dep_path = imp.get("file_path")
-        if not dep_path: continue
+        if not dep_path or is_noise(dep_path): continue
         
         graph_db.query(
             """
@@ -83,7 +87,7 @@ async def sync_graph(project_path: str, file_path: str):
     # Process imported_by
     for rev in data.get("imported_by", []) or []:
         dep_path = rev.get("file_path")
-        if not dep_path: continue
+        if not dep_path or is_noise(dep_path): continue
         
         graph_db.query(
             """
@@ -146,6 +150,12 @@ async def analyze_impact(request: ImpactAnalysisRequest) -> ImpactAnalysisRespon
 
     user_question = request.question or "วิเคราะห์ impact ของไฟล์นี้ในภาพรวม"
 
+    # Rule 6: Check cache first (project + file + question)
+    cache_key = f"impact_{request.project_path}_{request.file_path}_{user_question}"
+    cached_md = cache_service.get(cache_key)
+    if cached_md:
+        return ImpactAnalysisResponse(analysis_md=cached_md, nodes=nodes, edges=edges)
+
     prompt = (
         f"{IMPACT_SYSTEM_PROMPT}\n\n"
         f"Project path: {request.project_path}\n"
@@ -154,13 +164,17 @@ async def analyze_impact(request: ImpactAnalysisRequest) -> ImpactAnalysisRespon
         f"ข้อมูลจาก dependency graph:\n{graph_text}\n"
     )
 
-    analysis_md = await generate_markdown_response(
+    # Calculate tokens (roughly 1 token per 4 chars)
+    est_tokens = len(prompt) // 4
+
+    analysis_md = await route_and_generate(
         prompt, 
-        model_type="general", 
-        model_name=request.model,
-        provider=request.provider,
-        api_key=request.api_key
+        task_type="impact_analysis",
+        context_tokens=est_tokens
     )
+
+    # Save to cache
+    cache_service.set(cache_key, analysis_md)
 
     return ImpactAnalysisResponse(
         analysis_md=analysis_md,
@@ -173,7 +187,11 @@ NOISY_LIBS = [
     "react", "react-dom", "react-i18next", "next/", "next-auth",
     "lucide-react", "sonner", "clsx", "tailwind-merge", "zod", 
     "framer-motion", "valibot", "lucide", "@spartan-ng",
-    "prisma/client", "@prisma/client", "node_modules"
+    "prisma/client", "@prisma/client", "node_modules",
+    ".agent", ".git", ".vscode", ".next", "__pycache__", 
+    "venv", ".venv", "dist", "build", ".angular", ".antigravity",
+    "System.", "Microsoft.", "MediatR", "AutoMapper", "FluentValidation", 
+    "Newtonsoft.Json", "SixLabors", "BarcodeStandard", "Serilog", "Azure."
 ]
 
 def is_noise(path: str) -> bool:
@@ -269,6 +287,8 @@ async def sync_project_dependencies(request: ProjectGraphSyncRequest):
     
     for res in request.analysis:
         center_path = res.file_path
+        if is_noise(center_path):
+            continue
         
         # Merge center node
         graph_db.query(
@@ -279,7 +299,7 @@ async def sync_project_dependencies(request: ProjectGraphSyncRequest):
         # Merge imports
         for imp in res.imports:
             dep_path = imp.file_path
-            if not dep_path: continue
+            if not dep_path or is_noise(dep_path): continue
             
             graph_db.query(
                 """

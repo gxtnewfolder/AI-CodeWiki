@@ -72,7 +72,10 @@ import { FormsModule } from '@angular/forms';
                   <div class="file-icon-bg">
                     <ng-icon name="lucideFile" size="12" />
                   </div>
-                  <span class="file-path-text">{{ file.path }}</span>
+                  <div class="file-info">
+                    <div class="file-name">{{ getFileName(file.path) }}</div>
+                    <div class="file-path">{{ getDirPath(file.path) }}</div>
+                  </div>
                 </button>
               }
             </div>
@@ -262,12 +265,29 @@ import { FormsModule } from '@angular/forms';
       color: var(--text-muted);
     }
 
-    .file-path-text {
-      font-size: 12px;
-      color: var(--text-muted);
+    .file-info {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .file-name {
+      font-size: 13px;
+      font-weight: var(--font-semibold);
+      color: var(--text);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .file-path {
+      font-size: 11px;
+      color: var(--text-disabled);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      opacity: 0.8;
     }
 
     /* ─── QA Content (Glassmorphism inspired) ─── */
@@ -428,6 +448,17 @@ export class SearchPanelComponent {
   readonly searching = signal(false);
 
   rawQuery = '';
+  
+  getFileName(path: string): string {
+    const parts = path.split(/\/|\\/);
+    return parts.pop() || '';
+  }
+
+  getDirPath(path: string): string {
+    const parts = path.split(/\/|\\/);
+    parts.pop();
+    return parts.join(' / ');
+  }
 
   onInput(event: Event) {
     if (this.mode() === 'search') {

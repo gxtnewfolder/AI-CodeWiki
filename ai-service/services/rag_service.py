@@ -4,7 +4,8 @@ import pathlib
 import re
 
 from models.qa import ProjectQARequest, ProjectQAResponse, QAContextSnippet
-from services.ollama_client import generate_markdown_response
+from services.ollama_client import route_and_generate
+from services.cache_service import cache_service
 from services.vector_db import vector_db
 
 # Chunk size for code indexing
@@ -88,9 +89,16 @@ async def index_codebase(project_path: str):
     documents = []
     metadatas = []
     
+    # Folders to skip entirely
+    SKIP_DIRS = {
+        "node_modules", ".git", "dist", "build", "target", ".next", ".angular",
+        ".agent", ".vscode", ".antigravity", "__pycache__", "venv", ".venv"
+    }
+
     count = 0
     for root, dirs, files in os.walk(project_root):
-        dirs[:] = [d for d in dirs if d not in {"node_modules", ".git", "dist", "build", "target", ".next", ".angular"}]
+        # Efficiently skip unwanted directories
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         
         for name in files:
             ext = pathlib.Path(name).suffix.lower()
@@ -103,6 +111,10 @@ async def index_codebase(project_path: str):
             except ValueError:
                 rel_path = str(full_path)
                 
+            # Second-level noise check for files (e.g. minified files or huge bundles)
+            if any(x in rel_path.lower() for x in [".min.js", "bundle.js", "vendor/"]):
+                continue
+
             try:
                 with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
@@ -112,11 +124,10 @@ async def index_codebase(project_path: str):
             # Naive chunking
             for i in range(0, len(content), CHUNK_SIZE - CHUNK_OVERLAP):
                 chunk = content[i:i + CHUNK_SIZE]
-                chunk_id = f"{project_path}_{rel_path}_{i}" # Project path in ID for uniqueness
+                chunk_id = f"{project_path}_{rel_path}_{i}"
                 
                 ids.append(chunk_id)
                 documents.append(chunk)
-                # Store project_path in metadata for filtering
                 metadatas.append({
                     "project_path": project_path,
                     "file_path": rel_path,
@@ -124,8 +135,8 @@ async def index_codebase(project_path: str):
                 })
                 
                 count += 1
-                # Batch add every 100 chunks
-                if len(ids) >= 100:
+                # Batch add every 200 chunks for better performance
+                if len(ids) >= 200:
                     vector_db.add_documents(ids, documents, metadatas)
                     ids, documents, metadatas = [], [], []
 
@@ -136,11 +147,29 @@ async def index_codebase(project_path: str):
     print(f"Index complete: {count} chunks indexed from {project_path}")
 
 
+def strip_code_noise(content: str) -> str:
+    """
+    Remove comments and redundant whitespace to save tokens.
+    """
+    # Remove single line comments (basic for Go, JS, Py)
+    content = re.sub(r'//.*', '', content)
+    content = re.sub(r'#.*', '', content)
+    # Remove multiple newlines
+    content = re.sub(r'\n\s*\n', '\n', content)
+    return content.strip()
+
 async def answer_project_question(request: ProjectQARequest) -> ProjectQAResponse:
+    # Rule 6: Check cache first
+    cache_key = f"qa_{request.project_path}_{request.question}"
+    cached_md = cache_service.get(cache_key)
+    
     context_snippets = await _retrieve_context_for_question(request)
 
+    if cached_md:
+        return ProjectQAResponse(answer_md=cached_md, used_files=context_snippets or None)
+
     joined_context = "\n\n".join(
-        f"[{snippet.file_path}]\n{snippet.content_excerpt}" for snippet in context_snippets
+        f"[{snippet.file_path}]\n{strip_code_noise(snippet.content_excerpt)}" for snippet in context_snippets
     )
 
     prompt_parts = [PROJECT_QA_SYSTEM_PROMPT]
@@ -148,21 +177,21 @@ async def answer_project_question(request: ProjectQARequest) -> ProjectQARespons
     prompt_parts.append(f"คำถามจากผู้ใช้:\n{request.question}")
 
     if joined_context:
-        prompt_parts.append("Context ที่ดึงมาจากโปรเจกต์ (สแกนตรงตามโปรเจกต์เป้าหมาย):")
+        prompt_parts.append("Context จากโปรเจกต์ (Cleaned):")
         prompt_parts.append(joined_context)
     else:
-        prompt_parts.append("ขณะนี้ยังไม่มี context จาก Vector DB (ใช้ความรู้จากโค้ดที่เห็นในคำถามเป็นหลัก).")
+        prompt_parts.append("ขณะนี้ยังไม่มี context (ใช้ความรู้ทั่วไป).")
 
     prompt = "\n\n".join(prompt_parts)
+    est_tokens = len(prompt) // 4
 
-    # Use the model and provider requested by the user if any
-    answer_md = await generate_markdown_response(
+    answer_md = await route_and_generate(
         prompt, 
-        model_type="general", 
-        model_name=request.model,
-        provider=request.provider,
-        api_key=request.api_key
+        task_type="rag",
+        context_tokens=est_tokens
     )
 
-    return ProjectQAResponse(answer_md=answer_md, used_files=context_snippets or None)
+    # Save to cache
+    cache_service.set(cache_key, answer_md)
 
+    return ProjectQAResponse(answer_md=answer_md, used_files=context_snippets or None)

@@ -52,3 +52,19 @@ Thumbs.db
 .env.development.local
 .env.test.local
 .env.production.local
+
+# Python
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+ai-service/venv/
+ai-service/.venv/
+
+# AI CodeWiki Specific
+ai-service/db/
+ai-service/config.py
+
+# Docker Environment
+.docker/
+docker/data/
