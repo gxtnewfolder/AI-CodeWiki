@@ -3,7 +3,7 @@ import { UpperCasePipe } from '@angular/common';
 import { RouterOutlet } from '@angular/router';
 import { ThemeService } from './services/theme.service';
 import { ApiService } from './services/api.service';
-import { FileNode, SummaryResponse, Bookmark, HistoryEntry, DepsResult } from './models/api.models';
+import { FileNode, SummaryResponse, Bookmark, HistoryEntry, DepsResult, QAResponse, ChatMessage } from './models/api.models';
 import { FileTreeComponent } from './components/file-tree/file-tree.component';
 import { SummaryViewerComponent } from './components/summary-viewer/summary-viewer.component';
 import { SearchPanelComponent } from './components/search-panel/search-panel.component';
@@ -20,7 +20,7 @@ import { HlmInputImports } from '@spartan-ng/helm/input';
 
 // ng-icons
 import { provideIcons } from '@ng-icons/core';
-import { lucideFolder, lucideSearch, lucideStar, lucideClock, lucideSun, lucideMoon, lucideSettings, lucideBookmark, lucideRefreshCw, lucideFile, lucideFolderOpen, lucideZap } from '@ng-icons/lucide';
+import { lucideFolder, lucideSearch, lucideStar, lucideClock, lucideSun, lucideMoon, lucideSettings, lucideBookmark, lucideRefreshCw, lucideFile, lucideFolderOpen, lucideZap, lucideMessageSquare } from '@ng-icons/lucide';
 
 type SidebarTab = 'tree' | 'search' | 'bookmarks' | 'history';
 
@@ -45,7 +45,7 @@ type SidebarTab = 'tree' | 'search' | 'bookmarks' | 'history';
     provideIcons({
       lucideFolder, lucideSearch, lucideStar, lucideClock,
       lucideSun, lucideMoon, lucideSettings, lucideBookmark,
-      lucideRefreshCw, lucideFile, lucideFolderOpen, lucideZap,
+      lucideRefreshCw, lucideFile, lucideFolderOpen, lucideZap, lucideMessageSquare,
     }),
   ],
   templateUrl: './app.html',
@@ -74,12 +74,30 @@ export class App implements OnInit {
   // QA View State
   readonly viewMode = signal<'summary' | 'qa'>('summary');
   readonly currentQA = signal<{ question: string, response: any } | null>(null);
+  readonly chatHistory = signal<ChatMessage[]>([]);
 
   ngOnInit() {
     const lastProject = localStorage.getItem('codewiki-project');
     if (lastProject) {
       this.projectPath.set(lastProject);
       this.loadTree(lastProject);
+    }
+
+    // Load persisted chat history
+    const savedChat = localStorage.getItem('codewiki-active-chat');
+    if (savedChat) {
+      try {
+        const parsed = JSON.parse(savedChat);
+        this.chatHistory.set(parsed.history || []);
+        this.currentQA.set(parsed.currentQA || null);
+      } catch (e) { console.error("Failed to load chat history", e); }
+    }
+  }
+
+  // Helper to switch view back to QA
+  resumeChat() {
+    if (this.chatHistory().length > 0) {
+      this.viewMode.set('qa');
     }
   }
 
@@ -145,14 +163,66 @@ export class App implements OnInit {
 
     // Deps analysis (parallel, non-blocking)
     this.api.getDeps(this.projectPath(), filePath).subscribe({
-      next: (res) => this.deps.set(res),
-      error: () => this.deps.set(null), // silently fail
+      next: (res) => {
+        this.deps.set(res);
+      },
     });
   }
 
+  onAddToChat(filePath: string) {
+    this.viewMode.set('qa');
+    this.handleChatQuery(`ช่วยอธิบายไฟล์ \`${filePath}\` ให้หน่อยครับ ว่าทำหน้าที่อะไรและมีส่วนสำคัญยังไงบ้าง?`);
+  }
+
   showQA(data: { question: string, response: any }) {
+    // Start fresh history for a new session
+    this.chatHistory.set([
+      { role: 'user', content: data.question },
+      { role: 'assistant', content: data.response.answer_md }
+    ]);
     this.currentQA.set(data);
     this.viewMode.set('qa');
+    this.persistChat();
+  }
+
+  handleChatQuery(question: string) {
+    // Current history to send to AI
+    const history = [...this.chatHistory()];
+
+    this.api.codeQA({
+      project_path: this.projectPath(),
+      question: question,
+      history: history
+    }).subscribe({
+      next: (res: QAResponse) => {
+        // Update history with latest turn
+        this.chatHistory.update(prev => [
+          ...prev, 
+          { role: 'user', content: question },
+          { role: 'assistant', content: res.answer_md }
+        ]);
+        
+        // Trigger nextResponse in the chat component
+        this.currentQA.set({ question, response: res });
+        this.persistChat(); // Save turn
+      },
+      error: (err: any) => {
+        this.error.set('AI Error: ' + err.message);
+      }
+    });
+  }
+
+  private persistChat() {
+    localStorage.setItem('codewiki-active-chat', JSON.stringify({
+      history: this.chatHistory(),
+      currentQA: this.currentQA()
+    }));
+  }
+
+  clearChat() {
+    this.chatHistory.set([]);
+    this.currentQA.set(null);
+    localStorage.removeItem('codewiki-active-chat');
   }
 
   toggleTheme() {

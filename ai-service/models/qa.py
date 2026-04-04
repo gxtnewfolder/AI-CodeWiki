@@ -7,9 +7,15 @@ class QAContextSnippet(BaseModel):
     content_excerpt: str
 
 
+class ChatMessage(BaseModel):
+    role: str   # 'user' or 'assistant'
+    content: str
+
+
 class ProjectQARequest(BaseModel):
     project_path: str
     question: str
+    history: List[ChatMessage] = []
     max_context_files: int = 10
     model: Optional[str] = None
     provider: str = "ollama"

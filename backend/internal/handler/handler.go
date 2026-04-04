@@ -518,6 +518,10 @@ func (h *Handler) CodeQA(w http.ResponseWriter, r *http.Request) {
 		ProjectPath     string `json:"project_path"`
 		Question        string `json:"question"`
 		MaxContextFiles int    `json:"max_context_files"`
+		History         []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"history"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -537,12 +541,13 @@ func (h *Handler) CodeQA(w http.ResponseWriter, r *http.Request) {
 	
 	// Create a map to inject model and provider
 	payload := map[string]interface{}{
-		"project_path":       req.ProjectPath,
-		"question":           req.Question,
+		"project_path":      req.ProjectPath,
+		"question":          req.Question,
+		"history":           req.History,
 		"max_context_files": req.MaxContextFiles,
-		"model":              modelName,
-		"provider":           providerName,
-		"api_key":            apiKey,
+		"model":             modelName,
+		"provider":          providerName,
+		"api_key":           apiKey,
 	}
 	
 	body, _ := json.Marshal(payload)

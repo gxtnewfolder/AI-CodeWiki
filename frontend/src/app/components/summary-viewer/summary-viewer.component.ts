@@ -4,7 +4,7 @@ import { MarkdownComponent } from 'ngx-markdown';
 import { SummaryResponse, DepsResult } from '../../models/api.models';
 import { DepGraphComponent } from '../dep-graph/dep-graph.component';
 import { NgIcon, provideIcons } from '@ng-icons/core';
-import { lucideFile, lucideStar, lucideRefreshCw, lucideChevronLeft, lucideChevronRight, lucideAlertTriangle, lucideZap } from '@ng-icons/lucide';
+import { lucideFile, lucideStar, lucideRefreshCw, lucideChevronLeft, lucideChevronRight, lucideAlertTriangle, lucideZap, lucideMessageSquare } from '@ng-icons/lucide';
 import { ApiService } from '../../services/api.service';
 import { inject } from '@angular/core';
 import { ProjectService } from '../../services/project.service';
@@ -22,6 +22,7 @@ import { ProjectService } from '../../services/project.service';
       lucideChevronRight,
       lucideAlertTriangle,
       lucideZap,
+      lucideMessageSquare,
     }),
   ],
   template: `
@@ -33,6 +34,17 @@ import { ProjectService } from '../../services/project.service';
           <span class="viewer-path-text">{{ filePath }}</span>
         </div>
         <div class="viewer-actions">
+          <button 
+            class="btn btn-ghost btn-sm text-primary" 
+            (click)="addToChat.emit(filePath)" 
+            title="Add to Chat / Ask AI about this file"
+          >
+            <ng-icon name="lucideMessageSquare" size="14" />
+            <span class="ml-1">Ask AI</span>
+          </button>
+          
+          <div class="divider-v"></div>
+
           <button
             class="btn btn-ghost btn-sm"
             (click)="toggleBookmark.emit()"
@@ -369,6 +381,7 @@ export class SummaryViewerComponent {
   @Output() toggleBookmark = new EventEmitter<void>();
   @Output() regenerate = new EventEmitter<void>();
   @Output() fileSelect = new EventEmitter<string>();
+  @Output() addToChat = new EventEmitter<string>();
 
   @Input() projectPath = '';
   

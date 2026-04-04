@@ -50,6 +50,42 @@ def _score_text(text: str, terms: list[str]) -> int:
     return score
 
 
+async def _get_manual_file_context(project_path: str, question: str) -> List[QAContextSnippet]:
+    """
+    Scan the question for potential filenames and fetch their contents directly.
+    """
+    snippets = []
+    # Regex to find things that look like filenames (e.g. invoice.html, app.ts)
+    potential_files = re.findall(r'[a-zA-Z0-9_\-\./]+\.[a-z0-9]+', question)
+    
+    project_root = pathlib.Path(project_path)
+    
+    for filename in set(potential_files):
+        # Prevent path traversal - only look within project_root
+        try:
+            # We search for the file recursively if a partial name is given, 
+            # or directly if a relative path is given.
+            found_files = list(project_root.rglob(filename))
+            if not found_files:
+                # Try searching by basename if full path didn't match
+                found_files = list(project_root.rglob(f"**/{filename}"))
+                
+            for file_path in found_files[:2]: # Max 2 matches per name to avoid explosion
+                if file_path.is_file() and file_path.suffix.lower() in CODE_EXTENSIONS:
+                    rel_path = str(file_path.relative_to(project_root))
+                    with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+                        content = f.read(5000) # Get first 5k chars
+                        snippets.append(QAContextSnippet(
+                            file_path=rel_path,
+                            content_excerpt=content
+                        ))
+                    print(f"DEBUG: Smart-fetched context for: {rel_path}")
+        except Exception as e:
+            print(f"DEBUG: Failed to smart-fetch {filename}: {e}")
+            
+    return snippets
+
+
 async def _retrieve_context_for_question(request: ProjectQARequest) -> List[QAContextSnippet]:
     """
     RAG Phase 2: Use Vector DB for semantic search with project-specific filtering.
@@ -174,13 +210,21 @@ async def answer_project_question(request: ProjectQARequest) -> ProjectQARespons
 
     prompt_parts = [PROJECT_QA_SYSTEM_PROMPT]
     prompt_parts.append(f"โปรเจกต์ที่สแกนอยู่: {request.project_path}")
-    prompt_parts.append(f"คำถามจากผู้ใช้:\n{request.question}")
+
+    # Incorporate history if exists (Memory)
+    if request.history:
+        prompt_parts.append("### Conversation History (Context)")
+        for msg in request.history:
+            role_name = "User" if msg.role == "user" else "AI"
+            prompt_parts.append(f"{role_name}: {msg.content}")
+    
+    prompt_parts.append(f"### Current Question:\n{request.question}")
 
     if joined_context:
-        prompt_parts.append("Context จากโปรเจกต์ (Cleaned):")
+        prompt_parts.append("### Relevant Code Context (Cleaned):")
         prompt_parts.append(joined_context)
     else:
-        prompt_parts.append("ขณะนี้ยังไม่มี context (ใช้ความรู้ทั่วไป).")
+        prompt_parts.append("ขณะนี้ยังไม่มี context (ใช้ความรู้ทั่วไปเกี่ยวกับโปรเจกต์ที่คุยกัน).")
 
     prompt = "\n\n".join(prompt_parts)
     est_tokens = len(prompt) // 4

@@ -79,9 +79,15 @@ export interface DepsResult {
 
 // --- AI Features ---
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export interface QARequest {
   project_path: string;
   question: string;
+  history?: ChatMessage[];
   max_context_files?: number;
 }
 

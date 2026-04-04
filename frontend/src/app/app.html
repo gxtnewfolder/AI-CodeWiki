@@ -64,6 +64,17 @@
           <ng-icon hlmIcon name="lucideStar" size="sm" />
         </button>
         <button
+          class="sidebar-tab chat-resumer"
+          [class.active]="viewMode() === 'qa'"
+          (click)="resumeChat()"
+          title="Active Chat session"
+        >
+          <ng-icon hlmIcon name="lucideMessageSquare" size="sm" />
+          @if (chatHistory().length > 0) {
+            <span class="tab-indicator active-chat-dot"></span>
+          }
+        </button>
+        <button
           class="sidebar-tab"
           [class.active]="activeTab() === 'history'"
           (click)="switchTab('history')"
@@ -160,16 +171,20 @@
               (toggleBookmark)="toggleBookmark()"
               (regenerate)="selectFile(selectedFile()!)"
               (fileSelect)="selectFile($event)"
+              (addToChat)="onAddToChat($event)"
             />
           }
         }
         @case ('qa') {
-          <app-qa-viewer
-            [question]="currentQA()?.question || ''"
-            [response]="currentQA()?.response"
-            (fileSelect)="selectFile($event)"
+          <app-qa-viewer 
+            [initialQuestion]="currentQA()?.question || ''"
+            [nextResponse]="currentQA()?.response"
+            [history]="chatHistory()"
+            (newChat)="clearChat()"
+            (querySubmit)="handleChatQuery($event)"
             (goBack)="viewMode.set('summary')"
-          />
+            (fileSelect)="selectFile($event)">
+          </app-qa-viewer>
         }
       }
     }

@@ -120,12 +120,32 @@
   opacity: 0.5;
   transition: all 160ms ease-out;
   border-bottom: 2px solid transparent;
+  position: relative;
 }
 
 .sidebar-tab:hover { opacity: 0.75; background: var(--surface-2); }
 .sidebar-tab.active {
   opacity: 1;
   border-bottom-color: var(--primary);
+}
+
+.active-chat-dot {
+  position: absolute;
+  top: 6px;
+  right: 25%;
+  width: 7px;
+  height: 7px;
+  background: #10b981;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+  border: 1.5px solid var(--surface-1);
+  animation: pulse-glow 2s infinite;
+}
+
+@keyframes pulse-glow {
+  0% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.2); opacity: 1; box-shadow: 0 0 12px rgba(16, 185, 129, 1); }
+  100% { transform: scale(1); opacity: 0.8; }
 }
 
 .sidebar-content {
