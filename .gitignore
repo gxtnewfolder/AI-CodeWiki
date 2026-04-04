@@ -63,6 +63,7 @@ ai-service/.venv/
 
 # AI CodeWiki Specific
 ai-service/db/
+ai-service/__pycache__/
 ai-service/config.py
 
 # Docker Environment
